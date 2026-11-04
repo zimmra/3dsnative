@@ -285,3 +285,20 @@ unique paths, native shell identity, executable permissions, title identity, ico
 and absence of signature resources. All backups, artwork, local caches, verification reports and
 IPAs stay outside Git. Packaging other titles establishes archive integrity, not gameplay support;
 Omega Ruby remains the title with user-reported device gameplay.
+
+## Readable lower-screen correction (build 5)
+
+The user rejected build 4's narrow portrait screenshot: the lower display was a thumbnail despite
+substantial empty space. Its layout had fitted the screen between enlarged invisible control grab
+circles. A non-overlap assertion alone accepted this unusable result; the Simulator image should
+have blocked delivery.
+
+Narrow portrait now dedicates two rows to the screens above a separate control area, preserving
+their native 400:320 width ratio and equal pixel scale. At 390 by 844 points, the lower screen is
+312 points wide instead of approximately 109. Expanded portrait/book and vertical landscape use
+outer control footprints and share the bottom menu row with the D-pad and C-stick on its flanks.
+This releases substantially more lower-panel height without shrinking the approved controls. The
+expanded 800 by 1000 portrait/book fixtures require at least 480 by 360 points for the lower screen.
+Visible controls stay outside the display; its complete rectangle takes stylus priority over
+invisible pad grab margins. Thirty-three synthetic tests include these readability thresholds
+and visible separation between the compact control groups.

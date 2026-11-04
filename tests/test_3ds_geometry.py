@@ -102,17 +102,42 @@ class Layout(unittest.TestCase):
         self.assertLess(flipped.bottom.y,flipped.top.y)
         self.assertTrue(normal.bottom_menu and flipped.bottom_menu)
 
-    def test_small_display_excludes_control_touch_targets(self):
+    def test_small_display_excludes_visible_controls(self):
         for b in [(0,0,800,1000),(0,0,1000,800),(0,0,390,844)]:
             layout=self.layout(b,3)
             screen=layout.bottom
             self.assertGreater(screen.w,0)
             for group in range(4):
                 center=self.lib.position(layout.controls,group,layout.control_unit,layout.bottom_menu)
-                radius=self.lib.grab(layout.control_unit,group)
+                u=layout.control_unit
+                radius=[max(40,77*u),max(27.5,48*u),max(32.5,50*u)+max(21.25,27*u),max(27.5,60*u)][group]
                 x=min(max(center.x,screen.x),screen.x+screen.w)
                 y=min(max(center.y,screen.y),screen.y+screen.h)
                 self.assertGreaterEqual(((center.x-x)**2+(center.y-y)**2)**.5,radius)
+    def test_compact_portrait_has_readable_screens_above_pad(self):
+        for b in [(0,0,390,844),(0,0,390,748),(0,0,460,700)]:
+            layout=self.layout(b)
+            self.assertGreaterEqual(layout.bottom.w,layout.top.w*.799)
+            self.assertLessEqual(layout.bottom.y+layout.bottom.h,layout.controls.y)
+        self.assertGreaterEqual(self.layout((0,0,390,844)).bottom.w,300)
+    def test_expanded_lower_screen_is_not_a_thumbnail(self):
+        for partial,fold in [(0,None),(1,(0,500,800,0)),(1,(0,490,800,20))]:
+            layout=self.layout((0,0,800,1000),partial=partial,fold=fold)
+            self.assertGreaterEqual(layout.bottom.w,480)
+            self.assertGreaterEqual(layout.bottom.h,360)
+    def test_stacked_control_groups_do_not_overlap(self):
+        for b in [(0,0,390,748),(0,0,390,844),(0,0,460,700),(0,0,800,1000),(0,0,1000,800)]:
+            layout=self.layout(b,3)
+            u=layout.control_unit
+            centers=[self.lib.position(layout.controls,g,u,1) for g in range(4)]
+            radii=[max(40,77*u),max(27.5,48*u),max(21.25,27*u),max(27.5,60*u)]
+            gap=max(32.5,50*u)
+            circles=[(p.x,p.y,radii[g],g) for g,p in enumerate(centers) if g!=2]
+            face=centers[2]
+            circles += [(face.x+dx,face.y+dy,radii[2],2) for dx,dy in [(gap,0),(-gap,0),(0,gap),(0,-gap)]]
+            for i,(x,y,r,g) in enumerate(circles):
+                for xx,yy,rr,gg in circles[i+1:]:
+                    if g!=gg: self.assertGreaterEqual(((x-xx)**2+(y-yy)**2)**.5,r+rr+4)
     def test_flat_portrait_honors_inactive_division(self):
         flat=self.layout((0,0,800,1000),fold=(0,490,800,20))
         bent=self.layout((0,0,800,1000),partial=1,fold=(0,490,800,20))

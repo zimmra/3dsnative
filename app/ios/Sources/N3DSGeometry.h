@@ -39,6 +39,14 @@ static inline N3DSPoint n3ds_control_anchor(N3DSRect b, int group) {
     return (N3DSPoint){b.x+b.w*x[group], b.y+44+fmax(0,b.h-44)*y[group]};
 }
 static inline N3DSPoint n3ds_control_position(N3DSRect controls, int group, double u, int bottom_menu) {
+    if (bottom_menu && controls.w >= 600) {
+        // The lower row shares the menu's height, using its empty outer flanks.
+        if (group == 1 || group == 3) return (N3DSPoint){controls.x+controls.w*(group == 1 ? .24 : .76),
+            controls.y+controls.h-n3ds_control_grab(u,group)-8};
+        double edge = group == 0 ? n3ds_control_radius(u,0)+8 : n3ds_face_gap(u)+n3ds_control_radius(u,2)+8;
+        return (N3DSPoint){group == 0 ? controls.x+edge : controls.x+controls.w-edge,
+            controls.y+controls.h*.58};
+    }
     N3DSRect b = n3ds_control_body(controls,bottom_menu);
     double margin = group == 2 ? n3ds_face_gap(u)+n3ds_face_hit(u) : n3ds_control_radius(u,group)+6;
     N3DSPoint p = n3ds_control_anchor(b,group);
@@ -47,12 +55,14 @@ static inline N3DSPoint n3ds_control_position(N3DSRect controls, int group, doub
     return p;
 }
 static inline N3DSRect n3ds_small_display(N3DSRect lower, double u, double aspect) {
-    N3DSPoint left = n3ds_control_position(lower,0,u,1), right = n3ds_control_position(lower,2,u,1);
-    N3DSPoint dpad = n3ds_control_position(lower,1,u,1), stick = n3ds_control_position(lower,3,u,1);
-    double x = left.x+n3ds_control_grab(u,0)+8;
-    double end = right.x-n3ds_control_grab(u,2)-8;
-    double bottom = fmin(dpad.y-n3ds_control_grab(u,1),stick.y-n3ds_control_grab(u,3))-8;
-    return n3ds_fit((N3DSRect){x,lower.y+8,fmax(0,end-x),fmax(0,bottom-lower.y-8)},aspect);
+    // Reserve visible control footprints, not the oversized invisible grab circles.
+    double left = 2*n3ds_control_radius(u,0)+16;
+    double right = 2*(n3ds_face_gap(u)+n3ds_control_radius(u,2))+16;
+    double row = 2*fmax(n3ds_control_grab(u,1),n3ds_control_grab(u,3))+16;
+    N3DSRect canvas = {lower.x+left,lower.y+8,fmax(0,lower.w-left-right),fmax(0,lower.h-row)};
+    N3DSRect screen = n3ds_fit(canvas,aspect);
+    screen.y = canvas.y;
+    return screen;
 }
 static inline N3DSGeometry n3ds_geometry(N3DSRect safe, N3DSRect division, int partially_open, N3DSDisplay display, int flip) {
     N3DSGeometry result = {0};
@@ -64,6 +74,19 @@ static inline N3DSGeometry n3ds_geometry(N3DSRect safe, N3DSRect division, int p
         division.y > safe.y && division.y+division.h < safe.y+safe.h;
     result.landscape_options = !portrait && !partially_open;
     if (partially_open) display = N3DS_SPLIT;
+    if (portrait && safe.w < 600 && !horizontal_fold) {
+        // A phone-width window cannot put a readable display between large controls.
+        // Give both screens dedicated rows and place the complete pad below them.
+        double band = required+2*fmax(n3ds_control_radius(result.control_unit,1),n3ds_control_radius(result.control_unit,3))+80;
+        band = fmin(band,safe.h*.50);
+        result.controls = (N3DSRect){safe.x,safe.y+safe.h-band,safe.w,band};
+        result.bottom_menu = 1;
+        double scale = fmax(0,fmin(safe.w/400.,(safe.h-band-16)/480.));
+        double y = safe.y+fmax(0,(safe.h-band-8-480*scale)/2);
+        result.top = (N3DSRect){safe.x+(safe.w-400*scale)/2,y,400*scale,240*scale};
+        result.bottom = (N3DSRect){safe.x+(safe.w-320*scale)/2,y+240*scale+8,320*scale,240*scale};
+        return result;
+    }
     if (portrait || horizontal_fold || display == N3DS_VERTICAL) {
         // Flat portrait uses the same upper/lower panel arrangement as a bent Duo.
         double lower_height = fmax(safe.h*.5,fmin(safe.h*.78,required+80));

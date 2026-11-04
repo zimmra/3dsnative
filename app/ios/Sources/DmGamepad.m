@@ -314,6 +314,9 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     for (UITouch *t in ts) {
         if (_padOff) { game |= [self gameBegin:t]; continue; }
         CGPoint p = [t locationInView:self];
+        // The visible touchscreen owns its entire rectangle. Generous invisible
+        // pad grab regions must not steal stylus input at the display's edges.
+        if (CGRectContainsPoint(_layout.game,p)) { game |= [self gameBegin:t]; continue; }
         if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
         int hit = _tap ? -1 : [self btnAt:p];
         if (hit >= 0) { [_owner setObject:@(C_BTN | (uint64_t)hit << 8) forKey:t]; continue; }
