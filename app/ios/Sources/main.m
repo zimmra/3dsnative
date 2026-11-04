@@ -17,10 +17,12 @@ void n3ds_audio_session(void) {
 @implementation N3DSSceneDelegate
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+    // Making the root visible can start the boot thread immediately. Establish
+    // Playback first so RemoteIO never races audio-session activation.
+    n3ds_audio_session();
     self.window.rootViewController = front_ios_root();
     [self.window makeKeyAndVisible];
     UIApplication.sharedApplication.idleTimerDisabled = YES;
-    n3ds_audio_session();
 }
 - (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)contexts {
     for (UIOpenURLContext *context in contexts) front_ios_input(self.window.rootViewController, context.URL);
