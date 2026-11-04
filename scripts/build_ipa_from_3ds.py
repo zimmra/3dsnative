@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(REPO / "app/tools"))
 from three_ds import Dump, DumpError, find_update, inspect_dump  # noqa: E402
+from game_icon import install_icon
+from duo_shell import verify as verify_duo_shell
 
 
 def outside_repo(path: Path) -> Path:
@@ -135,6 +137,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, help="Local output directory (defaults to --work)")
     parser.add_argument("--name", help="Override the English title read from the backup")
     parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--duo-shell", type=Path, help="Verified game-free iOS 27.1-built 3dsnative.app")
     return parser.parse_args()
 
 
@@ -177,10 +180,27 @@ def main() -> None:
     os.environ.update(TMPDIR=str(work / "tmp") + "/", XDG_CACHE_HOME=str(work / "cache"),
                       PYTHONPYCACHEPREFIX=str(work / "cache/pycache"),
                       SWIFTPM_MODULECACHE_OVERRIDE=str(work / "cache/swiftpm-modules"))
-    print("[2/3] Building unsigned arm64 app with interpreter-only runtime", flush=True)
-    subprocess.run([sys.executable, str(REPO / "app/tools/build_cytrus.py"), "--sdk", "iphoneos",
-                    "--work", str(work), "--jobs", str(args.jobs), "--game-resources", str(private)], check=True)
-    app = work / "builds/cytrus-device/Build/Products/Release-iphoneos/3dsnative.app"
+    shell = args.duo_shell or work / "native-duo-shell/3dsnative.app"
+    if shell.exists():
+        verify_duo_shell(shell)
+        print("[2/3] Reusing verified native Duo executable; adding private game files locally", flush=True)
+        app = work / "builds" / f"packed-{base.title_id:016X}" / "3dsnative.app"
+        if app.exists():
+            shutil.rmtree(app)
+        shutil.copytree(shell, app)
+        shutil.copytree(private, app / "Game")
+    elif args.duo_shell:
+        raise DumpError("The requested native Duo shell does not exist")
+    else:
+        print("[2/3] Building the local SDK 26 fallback (no native Duo mode)", flush=True)
+        subprocess.run([sys.executable, str(REPO / "app/tools/build_cytrus.py"), "--sdk", "iphoneos",
+                        "--work", str(work), "--jobs", str(args.jobs), "--game-resources", str(private)], check=True)
+        app = work / "builds/cytrus-device/Build/Products/Release-iphoneos/3dsnative.app"
+    info = plistlib.loads((app / "Info.plist").read_bytes())
+    info["CFBundleIdentifier"] = f"org.threedsnative.title{base.title_id:016x}"
+    info["CFBundleDisplayName"] = name
+    install_icon(base, app, info)
+    (app / "Info.plist").write_bytes(plistlib.dumps(info))
     destination = out / (ipa_name(name) + ".ipa")
     print("[3/3] Packing unsigned IPA", flush=True)
     pack(app, destination)

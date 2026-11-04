@@ -15,6 +15,7 @@
 #include "common/logging/backend.h"
 #include "common/logging/log.h"
 #include "common/settings.h"
+#include "audio_core/sink_details.h"
 #include "core/core.h"
 #include "core/perf_stats.h"
 #include "core/hle/service/am/am.h"
@@ -118,6 +119,9 @@ int n3ds_run(const n3ds_boot_config *config_ptr) {
         Settings::values.use_cpu_jit.SetValue(false);
         Settings::values.use_fastinterp.SetValue(true);
         Settings::values.use_shader_jit.SetValue(false);
+        // Auto prefers OpenAL in the upstream sink list. The iOS host owns a
+        // Playback audio session and explicitly uses the native RemoteIO sink.
+        Settings::values.output_type.SetValue(AudioCore::SinkType::CoreAudio);
         Settings::values.graphics_api.SetValue(Settings::GraphicsAPI::Vulkan);
         Settings::values.cpu_clock_percentage.SetValue(100);
         Settings::values.is_new_3ds.SetValue(config.new_3ds);

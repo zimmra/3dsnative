@@ -1,0 +1,41 @@
+name: Build game-free native 3DS Duo shell
+on:
+  # Register the workflow from this migration branch without starting a paid job.
+  push:
+    branches: [claude/3ds-ios-port]
+    paths: ['.github/workflows/duo-shell.yml']
+  workflow_dispatch:
+    inputs:
+      runtime_tag:
+        description: Release tag containing the locally built game-free native-duo-runtime.zip
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: native-3ds-duo-shell
+  cancel-in-progress: false
+jobs:
+  shell:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Download public runtime only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNTIME_TAG: ${{ inputs.runtime_tag }}
+        run: gh release download "$RUNTIME_TAG" --repo "$GITHUB_REPOSITORY" --pattern native-duo-runtime.zip --dir "$RUNNER_TEMP"
+      - name: Compile and link native UIKit shell
+        run: |
+          python3 app/tools/duo_shell.py build --input "$RUNNER_TEMP/native-duo-runtime.zip" --work "$RUNNER_TEMP/3ds-build" --output "$RUNNER_TEMP/native-duo-shell.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-3ds-duo-shell
+          path: ${{ runner.temp }}/native-duo-shell.zip
+          if-no-files-found: error
+          retention-days: 14

@@ -207,13 +207,14 @@ def project(work: Path, core: Path, shared: Path, smoke: bool = False, game_reso
                 # Optional host video recording, not guest audio decoding.
                 # The packer does not expose a video-dumper frontend.
                 "core/dumping/ffmpeg_backend.cpp", "common/dynamic_library/ffmpeg.cpp",
+                "audio_core/coreaudio_sink.cpp",
                 "video_core/video_core.cpp",
             ]}, {
                 # This flag gates only the renderer factory; the software
                 # renderer sources are otherwise compiled unconditionally.
                 "path": str(core / "video_core/video_core.cpp"),
                 "compilerFlags": ["-DENABLE_SOFTWARE_RENDERER"],
-            }],
+            }, {"path": str(Path(__file__).resolve().parents[1] / "host/coreaudio_sink.cpp")}],
             "dependencies": [
                 {"package": "SharedDependencies", "product": "SharedDependencies", "link": True},
                 {"package": "Zstd", "products": ["libseekable_format", "libzstd", "libzstdwrapper"], "link": True},
@@ -316,11 +317,12 @@ def project(work: Path, core: Path, shared: Path, smoke: bool = False, game_reso
             "info": {"path": str(work / "cytrus-build-source/GameInfo.plist"), "properties": {
                 "CFBundleDisplayName": metadata["name"], "UILaunchScreen": {},
                 "UIFileSharingEnabled": True, "LSSupportsOpeningDocumentsInPlace": True,
-                "UIRequiresFullScreen": True,
+                "UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False,
+                    "UISceneConfigurations": {"UIWindowSceneSessionRoleApplication": [{"UISceneConfigurationName": "Game", "UISceneDelegateClassName": "N3DSSceneDelegate"}]}},
                 "NSCameraUsageDescription": "Use the camera for supported game features.",
                 "NSMicrophoneUsageDescription": "Use the microphone for supported game features.",
                 "CFBundleURLTypes": [{"CFBundleURLName": "Simulator input", "CFBundleURLSchemes": ["n3dsnative"]}],
-                "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"],
+                "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"],
             }},
         }
         spec["schemes"]["N3DSGame"] = {"build": {"targets": {"N3DSGame": "all"}}}

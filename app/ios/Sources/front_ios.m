@@ -7,7 +7,13 @@
 #include <math.h>
 #include <stdlib.h>
 #include "runtime.h"
+#if defined(N3DS_REQUIRE_NATIVE_DUO) && !__has_include(<UIKit/UIHingeInteraction.h>)
+#error Native Duo builds require the iOS 27.1 hinge SDK
+#endif
 #import "DmLayout.h"
+#import "N3DSGeometry.h"
+#import <AVFAudio/AVFAudio.h>
+void n3ds_audio_session(void);
 
 @interface N3DSMetalLayer : CAMetalLayer
 @property(atomic) BOOL presented;
@@ -67,10 +73,28 @@
 }
 @end
 
+@interface N3DSRootView : UIView
+@end
+@implementation N3DSRootView
++ (BOOL)requiresConstraintBasedLayout { return YES; }
+- (void)updateConstraints {
+#if __has_include(<UIKit/UIHingeInteraction.h>)
+    if (@available(iOS 27.1, *)) {
+        [self reservedRegionsOfKind:UIViewReservedRegionKind.divisionRegionKind options:UIViewReservedRegionQueryOptionsIncludeInactive];
+        [self setNeedsLayout];
+    }
+#endif
+    [super updateConstraints];
+}
+@end
+
 @interface N3DSRootVC : UIViewController
 @property(nonatomic, strong) DmGameView *top;
 @property(nonatomic, strong) DmGameView *bottom;
 @property(nonatomic, strong) UILabel *status;
+@property(nonatomic, strong) UIButton *flip;
+@property(nonatomic) BOOL partiallyOpen;
+@property(nonatomic, copy) NSString *layoutLog;
 @property(nonatomic, strong) UILabel *fps;
 @property(nonatomic, strong) UIView *gamepad;
 @property(nonatomic, strong) NSDictionary *manifest;
@@ -83,12 +107,6 @@
 - (BOOL)inputURL:(NSURL *)url;
 @end
 
-static CGRect aspectFit(CGRect bounds, CGFloat ratio) {
-    CGFloat width = MIN(bounds.size.width, bounds.size.height * ratio);
-    CGFloat height = width / ratio;
-    return CGRectMake(round(CGRectGetMidX(bounds) - width / 2), round(CGRectGetMidY(bounds) - height / 2), round(width), round(height));
-}
-
 static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, uint64_t total, const char *message) {
     N3DSRootVC *controller = (__bridge N3DSRootVC *)context;
     NSString *text = message ? [NSString stringWithUTF8String:message] : @"";
@@ -99,13 +117,40 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
 }
 
 @implementation N3DSRootVC
+- (void)loadView { self.view = [N3DSRootView new]; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
+- (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+- (void)settingsChanged:(NSNotification *)notification { [self.view setNeedsLayout]; }
+#if __has_include(<UIKit/UIHingeInteraction.h>)
+- (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
+    self.partiallyOpen = hinge.status == UIHingeStatusPartiallyOpen;
+    [self.view setNeedsUpdateConstraints]; [self.view setNeedsLayout];
+}
+#endif
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.blackColor;
+#if __has_include(<UIKit/UIHingeInteraction.h>)
+    if (@available(iOS 27.1, *)) {
+        __weak N3DSRootVC *weak = self;
+        [self.view addInteraction:[[UIHingeInteraction alloc] initWithUpdateHandler:^(UIHingeInteraction *interaction, UIHingeInteractionUpdate *update) {
+            [weak hingeChanged:update.hinge];
+        }]];
+    }
+#endif
     self.top = [DmGameView new]; self.bottom = [DmGameView new];
     [self.view addSubview:self.top]; [self.view addSubview:self.bottom];
     self.gamepad = dm_gamepad_view(self.view.bounds);
     [self.view addSubview:self.gamepad];
+    self.flip = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.flip setImage:[UIImage systemImageNamed:@"arrow.up.arrow.down"] forState:UIControlStateNormal];
+    self.flip.tintColor = UIColor.whiteColor; self.flip.accessibilityLabel = @"Flip large and small screens";
+    [self.flip addAction:[UIAction actionWithHandler:^(UIAction *action) {
+        NSUserDefaults *settings = NSUserDefaults.standardUserDefaults;
+        [settings setBool:![settings boolForKey:@"FlipLargeScreen"] forKey:@"FlipLargeScreen"];
+        [NSNotificationCenter.defaultCenter postNotificationName:@"N3DSSettingsChanged" object:nil];
+    }] forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:self.flip];
     self.bottom.multipleTouchEnabled = YES;
     self.status = [UILabel new]; self.status.numberOfLines = 0;
     self.status.textColor = UIColor.whiteColor; self.status.textAlignment = NSTextAlignmentCenter;
@@ -136,6 +181,12 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
     self.manifest = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     if (!self.manifest) self.status.text = @"Game files are missing.\nRebuild the IPA with your backup.";
     NSNotificationCenter *notifications = NSNotificationCenter.defaultCenter;
+    [notifications addObserver:self selector:@selector(settingsChanged:) name:@"N3DSSettingsChanged" object:nil];
+    [notifications addObserverForName:AVAudioSessionInterruptionNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+        BOOL interrupted = [notification.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue] == AVAudioSessionInterruptionTypeBegan;
+        if (!interrupted) n3ds_audio_session();
+        n3ds_pause(interrupted);
+    }];
     [notifications addObserver:self selector:@selector(background:) name:UIApplicationWillResignActiveNotification object:nil];
     [notifications addObserver:self selector:@selector(foreground:) name:UIApplicationDidBecomeActiveNotification object:nil];
 #if TARGET_OS_SIMULATOR
@@ -171,32 +222,44 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
 - (void)viewDidAppear:(BOOL)animated { [super viewDidAppear:animated]; [self becomeFirstResponder]; }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    CGRect safe = UIEdgeInsetsInsetRect(self.view.bounds, self.view.safeAreaInsets);
-    CGRect top, bottom;
-    if (safe.size.height >= safe.size.width) {
-        // Reserve the bottom band for the 3DS gamepad added in the next step.
-        CGFloat band = MIN(230, safe.size.height * .30);
-        CGRect screens = safe; screens.size.height -= band;
-        CGFloat height = MIN(screens.size.height - 8, screens.size.width * (240.0/400.0 + 240.0/320.0));
-        CGFloat topHeight = height * (240.0/400.0) / (240.0/400.0 + 240.0/320.0);
-        top = aspectFit(CGRectMake(screens.origin.x, screens.origin.y, screens.size.width, topHeight), 400.0/240.0);
-        bottom = aspectFit(CGRectMake(screens.origin.x, CGRectGetMaxY(top) + 8, screens.size.width, height - topHeight), 320.0/240.0);
-    } else {
-        CGRect screens = safe; screens.size.height -= MIN(170, safe.size.height * .45);
-        CGFloat height = MIN(screens.size.height, (screens.size.width - 8) / 3.0);
-        CGFloat width = height * 3.0 + 8;
-        CGFloat x = CGRectGetMidX(screens) - width/2, y = CGRectGetMidY(screens) - height/2;
-        top = CGRectMake(x, y, height * 400.0/240.0, height);
-        bottom = CGRectMake(CGRectGetMaxX(top) + 8, y, height * 320.0/240.0, height);
+    CGRect bounds = self.view.bounds;
+    CGRect safe = UIEdgeInsetsInsetRect(bounds, self.view.safeAreaInsets);
+    N3DSRect division = {0};
+#if __has_include(<UIKit/UIHingeInteraction.h>)
+    if (@available(iOS 27.1, *)) {
+        for (UIViewReservedRegion *region in [self.view reservedRegionsOfKind:UIViewReservedRegionKind.divisionRegionKind options:UIViewReservedRegionQueryOptionsIncludeInactive]) {
+            CGRect raw = region.frame;
+            CGFloat x = MAX(CGRectGetMinX(bounds), CGRectGetMinX(raw)), y = MAX(CGRectGetMinY(bounds), CGRectGetMinY(raw));
+            CGFloat right = MIN(CGRectGetMaxX(bounds), CGRectGetMaxX(raw)), bottom = MIN(CGRectGetMaxY(bounds), CGRectGetMaxY(raw));
+            // Preserve zero-height inactive fold regions, as in ns2ios-shell.
+            CGRect frame = right > x && bottom >= y ? CGRectMake(x,y,right-x,bottom-y) : CGRectNull;
+            if (!CGRectIsNull(frame) && frame.size.width > frame.size.height && frame.size.width >= bounds.size.width*.9) {
+                division = (N3DSRect){frame.origin.x,frame.origin.y,frame.size.width,frame.size.height}; break;
+            }
+        }
     }
+#endif
+    NSUserDefaults *settings = NSUserDefaults.standardUserDefaults;
+    N3DSDisplay display = (N3DSDisplay)[settings integerForKey:@"LandscapeDisplay"];
+    N3DSGeometry geometry = n3ds_geometry((N3DSRect){safe.origin.x,safe.origin.y,safe.size.width,safe.size.height}, division,
+        self.partiallyOpen, display, [settings boolForKey:@"FlipLargeScreen"]);
+    [settings setBool:geometry.landscape_options forKey:@"LandscapeOptionsAvailable"];
+    CGRect top = CGRectMake(geometry.top.x,geometry.top.y,geometry.top.w,geometry.top.h);
+    CGRect bottom = CGRectMake(geometry.bottom.x,geometry.bottom.y,geometry.bottom.w,geometry.bottom.h);
+    CGRect controls = CGRectMake(geometry.controls.x,geometry.controls.y,geometry.controls.w,geometry.controls.h);
+    BOOL topOmitted = CGRectIsEmpty(top), bottomOmitted = CGRectIsEmpty(bottom);
+    // Hidden screens keep a valid offscreen drawable for the emulator's two swapchains.
+    if (topOmitted) top = CGRectMake(-402,-242,400,240);
+    if (bottomOmitted) bottom = CGRectMake(-322,-242,320,240);
+    self.flip.hidden = !geometry.landscape_options || display != N3DS_VERTICAL;
+    self.flip.frame = CGRectMake(CGRectGetMidX(controls)-22, CGRectGetMinY(controls)+54,44,44);
+    NSString *line = [NSString stringWithFormat:@"bounds %@ safe %@ fold %@ partial=%d top %@ bottom %@ controls %@", NSStringFromCGRect(bounds), NSStringFromCGRect(safe), NSStringFromCGRect(CGRectMake(division.x,division.y,division.w,division.h)), self.partiallyOpen, NSStringFromCGRect(top), NSStringFromCGRect(bottom), NSStringFromCGRect(controls)];
+    if (![line isEqual:self.layoutLog]) { self.layoutLog = line; NSLog(@"3dsnative Duo layout: %@", line); }
     BOOL changed = !CGRectEqualToRect(self.top.frame, top) || !CGRectEqualToRect(self.bottom.frame, bottom);
     if (changed) { self.screenTouch = nil; n3ds_touch(false, 0, 0); }
     self.top.frame = top; self.bottom.frame = bottom;
     self.gamepad.frame = self.view.bounds;
-    CGRect controls = CGRectMake(safe.origin.x, MAX(CGRectGetMaxY(top), CGRectGetMaxY(bottom)) + 8,
-                                  safe.size.width, 0);
-    controls.size.height = MAX(0, CGRectGetMaxY(safe) - controls.origin.y);
-    dm_gamepad_arrange(self.gamepad, (DmLayout){bottom, controls, YES, NO});
+    dm_gamepad_arrange(self.gamepad, (DmLayout){bottomOmitted ? CGRectZero : bottom, controls, YES, NO});
     [self.top layoutIfNeeded]; [self.bottom layoutIfNeeded];
     self.status.frame = CGRectInset(safe, 24, 24);
     self.fps.frame = CGRectMake(safe.origin.x + 8, safe.origin.y + 8, 150, 24);
@@ -239,7 +302,7 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
     n3ds_input(N3DS_INPUT_AUTOMATION, 0, 0, 0, 0, 0);
     n3ds_pause(true);
 }
-- (void)foreground:(NSNotification *)notification { n3ds_pause(false); [self becomeFirstResponder]; }
+- (void)foreground:(NSNotification *)notification { n3ds_audio_session(); n3ds_pause(false); [self becomeFirstResponder]; }
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     for (UITouch *touch in touches) {
         if (!self.screenTouch && CGRectContainsPoint(self.bottom.frame, [touch locationInView:self.view])) self.screenTouch = touch;

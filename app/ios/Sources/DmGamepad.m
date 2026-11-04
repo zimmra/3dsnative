@@ -8,6 +8,7 @@
 #include <stdatomic.h>
 #include "runtime.h"
 #import "DmLayout.h"
+#import "N3DSGeometry.h"
 
 enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
 enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_GAME };
@@ -181,37 +182,24 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
     return CGPointMake(CGRectGetMinX(s) + s.size.width * (right ? 0.72 : 0.28),
                        CGRectGetMinY(s) + s.size.height * 0.58);
 }
-- (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u;
-    if (self.portraitControls) return [self portraitThumbCenter:YES];
-    CGFloat edge = _layout.separated ? self.faceGap + self.faceHitR : 0;
-    return side(s, 1, MAX(K_FACE_X * u, edge), CGRectGetMaxY(s) - MAX(K_PAD_Y * u, edge)); }
+- (CGPoint)anchor:(int)group margin:(CGFloat)margin {
+    CGRect b = self.safe;
+    N3DSPoint point = n3ds_control_anchor((N3DSRect){b.origin.x,b.origin.y,b.size.width,b.size.height}, group);
+    return CGPointMake(fmin(fmax(point.x, CGRectGetMinX(b)+margin), CGRectGetMaxX(b)-margin),
+                       fmin(fmax(point.y, CGRectGetMinY(b)+44+margin), CGRectGetMaxY(b)-margin));
+}
+- (CGPoint)faceCenter { return [self anchor:2 margin:self.faceGap+self.faceHitR]; }
 - (CGFloat)faceGap { return MAX(26, K_FACE_GAP * self.u); }
 - (CGFloat)faceR { return MAX(17, K_FACE_R * self.u); }
 - (CGFloat)faceHitR { return MAX(self.faceR * 1.25, _layout.separated ? 22 : 0); }
 - (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
     switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
-- (CGPoint)stickHome {
-    if (self.portraitControls) {
-        CGPoint p = [self portraitThumbCenter:NO];
-        if (_full) p.x -= self.dpadR + 12 * self.u;
-        return p;
-    }
-    CGRect s = self.corner;
-    return side(s, 0, MAX(K_STICK_X * self.u, [self stickR:0] + 6), CGRectGetMaxY(s) - MAX(K_PAD_Y * self.u, [self stickR:0] + 6));
-}
-- (CGPoint)cstickHome { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s) + s.size.width * .17, CGRectGetMaxY(s) - 28); }
+- (CGPoint)stickHome { return [self anchor:0 margin:[self stickR:0]+6]; }
+- (CGPoint)cstickHome { return [self anchor:3 margin:[self stickR:1]+6]; }
 - (CGPoint)stickCentre:(int)i { return i ? self.cstickHome : self.stickHome; }
 - (CGFloat)stickR:(int)i { return i ? 22 : MAX(32, K_STICK_R * self.u); }
 - (BOOL)inRightArea:(CGPoint)p { return hypot(p.x - self.cstickHome.x, p.y - self.cstickHome.y) <= MAX([self stickR:1], 22); }
-- (CGPoint)dpadCenter {
-    if (self.portraitControls) {
-        CGPoint p = [self portraitThumbCenter:NO];
-        p.x += self.dpadR + 12 * self.u;
-        return p;
-    }
-    CGRect s = self.corner; CGFloat u = self.u;
-    return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u);
-}
+- (CGPoint)dpadCenter { return [self anchor:1 margin:self.dpadR+6]; }
 - (CGFloat)dpadR { return MAX(22, K_DPAD_R * self.u); }
 static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
 static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
@@ -516,7 +504,21 @@ static void pads_start(void) {}
         [NSNotificationCenter.defaultCenter postNotificationName:@"N3DSSettingsChanged" object:nil];
     }];
     fps.state = [NSUserDefaults.standardUserDefaults boolForKey:@"ShowFPS"] ? UIMenuElementStateOn : UIMenuElementStateOff;
-    return [UIMenu menuWithChildren:@[[UIMenu menuWithTitle:@"Resolution" children:scales], controls, automatic, fps]];
+    NSMutableArray *items = [NSMutableArray arrayWithArray:@[[UIMenu menuWithTitle:@"Resolution" children:scales], controls, automatic, fps]];
+    if ([NSUserDefaults.standardUserDefaults boolForKey:@"LandscapeOptionsAvailable"]) {
+        NSMutableArray *layouts = [NSMutableArray new];
+        NSArray *names = @[@"50/50 split", @"Top screen only", @"Bottom screen only", @"Large/small vertical"];
+        for (NSUInteger i = 0; i < names.count; i++) {
+            UIAction *choice = [UIAction actionWithTitle:names[i] image:nil identifier:nil handler:^(UIAction *action) {
+                [NSUserDefaults.standardUserDefaults setInteger:i forKey:@"LandscapeDisplay"];
+                [NSNotificationCenter.defaultCenter postNotificationName:@"N3DSSettingsChanged" object:nil];
+            }];
+            choice.state = [NSUserDefaults.standardUserDefaults integerForKey:@"LandscapeDisplay"] == i ? UIMenuElementStateOn : UIMenuElementStateOff;
+            [layouts addObject:choice];
+        }
+        [items insertObject:[UIMenu menuWithTitle:@"Landscape display" children:layouts] atIndex:0];
+    }
+    return [UIMenu menuWithChildren:items];
 }
 - (NSDictionary *)diagnostics {
     return @{@"physical_controller": @(_padOff), @"touch_only": @(_tap),
