@@ -229,3 +229,33 @@ right-control ordering check they cover 23 tests. Per the user's follow-up, ABXY
 group; the C-stick sits below and inward toward the center, rather than on the centerline.
 Runtime-source and shell-source hashes are separate: changing UIKit geometry requires only another
 short shell compile/link on the runner, while the local ARM11 runtime remains reusable.
+
+## Audio sample ABI correction and larger controls
+
+The next device report confirms sound is audible but heavily distorted. The pinned SoundTouch
+archive exports `SoundTouch::putSamples(short const*, unsigned int)` on both arm64 and x86_64,
+but its shipped STTypes header defaults to float PCM. The time-stretcher calls its sample methods
+virtually, so incompatible sample-pointer types did not cause an unresolved-symbol error. Float
+buffers were interpreted as integer PCM and vice versa.
+
+A new synthetic stereo probe runs the actual `AudioCore::TimeStretcher` from the linked iOS runtime.
+With the old compile flags, 440/880 Hz inputs measured about 314.74/558.51 Hz, with incorrect RMS
+levels. With `SOUNDTOUCH_INTEGER_SAMPLES=1` applied specifically to the time-stretcher translation
+unit, the same probe measures 439.88/879.75 Hz and RMS 7071.29/4242.63, matching the 10000/6000-peak
+input signals. The ARM11 debug/exit smoke test also passes. Evidence remains in the work folder's
+`logs/audio-probe-before.json` and `logs/audio-probe-after.json`; the fixture itself is original
+synthetic audio, not a game recording.
+
+The source adaptation statically checks the header sample type and the build checks the archive's
+integer-PCM symbol, preventing silent ABI drift. The DSP stretch threshold is also corrected from
+`95` to `0.95`: its performance statistic is a normalized ratio (1.0 is full speed). Initialize the
+stretcher sample rate before installing the live sink callback, and append FIFO samples after any
+flushed samples instead of overwriting their start. These are general audio-path fixes, not game
+workarounds or a blanket disabling of stretching.
+
+The user also requested modestly larger controls using the working Switch interface as reference.
+Increase the shared control scale and minimum sizes by 25%, retain ABXY as the outer right group,
+and keep the C-stick inward. The right stick now scales with the reference 60:77 right/left radius
+proportion instead of remaining a fixed-size nub on the expanded display. Its knob and hit area
+follow the same radius. Native Duo display presets, icon and stable bundle identity are retained.
+This delivery uses bundle build number 3 so it is distinguishable from the preceding build.

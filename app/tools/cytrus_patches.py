@@ -2,6 +2,29 @@
 from pathlib import Path
 
 
+def audio_fixes(source: Path, target: Path) -> None:
+    edits = {
+        "audio_core/time_stretch.cpp": [
+            ("namespace AudioCore {", "namespace AudioCore {\nstatic_assert(std::is_same_v<soundtouch::SAMPLETYPE, s16>, \"Pinned SoundTouch binary uses integer PCM\");"),
+        ],
+        "audio_core/dsp_interface.cpp": [
+            ("    sink->SetCallback(\n", "    time_stretcher.SetOutputSampleRate(sink->GetNativeSampleRate());\n    sink->SetCallback(\n"),
+            (" });\n    time_stretcher.SetOutputSampleRate(sink->GetNativeSampleRate());", " });"),
+            ("perf_stats.emulation_speed <= 95;", "perf_stats.emulation_speed <= 0.95;"),
+            ("fifo.Pop(buffer, num_frames - frames_written)", "fifo.Pop(buffer + 2 * frames_written, num_frames - frames_written)"),
+        ],
+    }
+    for relative, replacements in edits.items():
+        content = (source / relative).read_text()
+        for before, after in replacements:
+            if content.count(before) != 1:
+                raise RuntimeError(f"Review upstream audio adaptation: {relative}: {before}")
+            content = content.replace(before, after)
+        output = target / relative
+        if output.read_text() != content:
+            output.write_text(content)
+
+
 def simulator_texel_buffers(source: Path, target: Path) -> None:
     """Simulator Metal only permits linear textures in private GPU buffers.
 

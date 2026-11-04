@@ -27,6 +27,8 @@ static inline N3DSGeometry n3ds_geometry(N3DSRect safe, N3DSRect division, int p
         return result;
     }
     double band = fmin(portrait ? 290 : 200, safe.h * (portrait ? .34 : .43));
+    // Keep the enlarged face buttons below the shoulder row on short displays.
+    if (!portrait) band = fmin(safe.h * .60, fmax(170, band));
     canvas.h = fmax(0, safe.h-band-8);
     result.controls = (N3DSRect){safe.x, safe.y+canvas.h+8, safe.w, band};
     result.landscape_options = !portrait && !partially_open;

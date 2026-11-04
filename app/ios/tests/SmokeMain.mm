@@ -2,6 +2,10 @@
 #import <UIKit/UIKit.h>
 
 #include <chrono>
+#include <cmath>
+#include <vector>
+#include "audio_core/time_stretch.h"
+#include "audio_core/audio_types.h"
 #include "audio_core/sink_details.h"
 #include "common/file_util.h"
 #include "common/logging/backend.h"
@@ -23,6 +27,42 @@ public:
     void PollEvents() override {}
 };
 
+static bool RunAudioProbe(NSString *documents) {
+    AudioCore::TimeStretcher stretcher;
+    stretcher.SetOutputSampleRate(AudioCore::native_sample_rate);
+    constexpr unsigned block = 256;
+    std::vector<s16> input(block * 2), output(block * 2), captured;
+    for (unsigned start = 0; start < AudioCore::native_sample_rate * 2; start += block) {
+        for (unsigned i = 0; i < block; ++i) {
+            double time = double(start+i) / AudioCore::native_sample_rate;
+            input[2*i] = std::lround(10000 * std::sin(2*M_PI*440*time));
+            input[2*i+1] = std::lround(6000 * std::sin(2*M_PI*880*time));
+        }
+        auto count = stretcher.Process(input.data(), block, output.data(), block);
+        captured.insert(captured.end(), output.begin(), output.begin()+2*count);
+    }
+    double rms[2]{}, frequency[2]{};
+    auto frames = captured.size()/2;
+    for (unsigned channel = 0; channel < 2; ++channel) {
+        unsigned crossings = 0;
+        for (size_t i = 1025; i < frames; ++i) {
+            double value = captured[2*i+channel]; rms[channel] += value * value;
+            if (captured[2*(i-1)+channel] <= 0 && value > 0) ++crossings;
+        }
+        if (frames > 1025) {
+            rms[channel] = std::sqrt(rms[channel] / (frames-1025));
+            frequency[channel] = double(crossings)*AudioCore::native_sample_rate / (frames-1025);
+        }
+    }
+    bool passed = frames > 30000 && std::abs(frequency[0]-440) < 5 && std::abs(frequency[1]-880) < 5 &&
+                  rms[0] > 6000 && rms[0] < 8000 && rms[1] > 3500 && rms[1] < 5000;
+    NSDictionary *result = @{@"passed":@(passed), @"frames":@(frames),
+        @"left_hz":@(frequency[0]), @"right_hz":@(frequency[1]), @"left_rms":@(rms[0]), @"right_rms":@(rms[1])};
+    [[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil]
+        writeToFile:[documents stringByAppendingPathComponent:@"audio-probe.json"] atomically:YES];
+    return passed;
+}
+
 static bool RunSmoke(NSString *documents) {
     if (n3ds_runtime_abi() != N3DS_RUNTIME_ABI)
         return false;
@@ -39,6 +79,7 @@ static bool RunSmoke(NSString *documents) {
     Common::Log::Filter filter;
     filter.ParseFilterString(Settings::values.log_filter.GetValue());
     Common::Log::SetGlobalFilter(filter);
+    bool audioPassed = RunAudioProbe(documents);
     Settings::values.use_cpu_jit.SetValue(false);
     Settings::values.use_fastinterp.SetValue(true);
     Settings::values.use_shader_jit.SetValue(false);
@@ -84,10 +125,11 @@ static bool RunSmoke(NSString *documents) {
     bool exited = log && [exitPattern numberOfMatchesInString:log options:0 range:NSMakeRange(0, log.length)] == 1;
     bool normalStatus = status == Core::System::ResultStatus::Success ||
                         status == Core::System::ResultStatus::ShutdownRequested;
-    bool passed = loaded && marker && exited && normalStatus;
+    bool passed = loaded && marker && exited && normalStatus && audioPassed;
     NSDictionary *result = @{@"state": @"completed", @"passed": @(passed), @"loaded": @(loaded),
                               @"core_status": @(static_cast<unsigned>(status)),
                               @"debug_svc": @(marker), @"exit_svc": @(exited),
+                              @"audio_probe": @(audioPassed),
                               @"cpu_jit": @NO, @"shader_jit": @NO};
     NSData *json = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
     [json writeToFile:[documents stringByAppendingPathComponent:@"smoke-result.json"] atomically:YES];

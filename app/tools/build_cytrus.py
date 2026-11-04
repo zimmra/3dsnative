@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 sys.dont_write_bytecode = True
-from cytrus_patches import simulator_texel_buffers
+from cytrus_patches import audio_fixes, simulator_texel_buffers
 
 
 PINS = {
@@ -182,6 +182,7 @@ void cytrus::resize_screens(double top_h, double top_w, double bottom_h, double 
     dest = target / "emu_window_vk.cpp"
     if dest.read_text() != window:
         dest.write_text(window)
+    audio_fixes(source, target)
     simulator_texel_buffers(source, target)
     return target
 
@@ -208,13 +209,19 @@ def project(work: Path, core: Path, shared: Path, smoke: bool = False, game_reso
                 # The packer does not expose a video-dumper frontend.
                 "core/dumping/ffmpeg_backend.cpp", "common/dynamic_library/ffmpeg.cpp",
                 "audio_core/coreaudio_sink.cpp",
+                "audio_core/time_stretch.cpp",
                 "video_core/video_core.cpp",
             ]}, {
                 # This flag gates only the renderer factory; the software
                 # renderer sources are otherwise compiled unconditionally.
                 "path": str(core / "video_core/video_core.cpp"),
                 "compilerFlags": ["-DENABLE_SOFTWARE_RENDERER"],
-            }, {"path": str(Path(__file__).resolve().parents[1] / "host/coreaudio_sink.cpp")}],
+            }, {"path": str(Path(__file__).resolve().parents[1] / "host/coreaudio_sink.cpp")}, {
+                # The pinned binary's virtual sample-processing API uses short*,
+                # while its shipped headers default to float*. Match that ABI.
+                "path": str(core / "audio_core/time_stretch.cpp"),
+                "compilerFlags": ["-DSOUNDTOUCH_INTEGER_SAMPLES=1"],
+            }],
             "dependencies": [
                 {"package": "SharedDependencies", "product": "SharedDependencies", "link": True},
                 {"package": "Zstd", "products": ["libseekable_format", "libzstd", "libzstdwrapper"], "link": True},
@@ -403,6 +410,11 @@ def main() -> None:
     forbidden = ("ARM_Dynarmic", "DynarmicExclusiveMonitor", "JitEngine")
     if any(name in symbols for name in forbidden):
         raise RuntimeError("The iOS archive still references a CPU JIT implementation")
+    soundtouch = library.parent / "libSoundTouch.a"
+    audio_symbols = subprocess.run(["xcrun", "nm", "-g", str(soundtouch)], check=True,
+                                   text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+    if "putSamplesEPKsj" not in audio_symbols:
+        raise RuntimeError("Pinned SoundTouch sample ABI changed; review integer PCM compile flags")
     print(f"Built interpreter-only core: {library}", flush=True)
 
 

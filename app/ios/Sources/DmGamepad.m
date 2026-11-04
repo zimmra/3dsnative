@@ -23,7 +23,7 @@ static const CGFloat
     K_FACE_GAP = 50, K_FACE_R = 27,
     K_PILL_DX = 62, K_PILL_Y = 22, K_PILL_W = 64, K_PILL_H = 32,
     K_MENU_R = 15,
-    K_STICK_X = 81, K_STICK_R = 77, K_KNOB_R = 30,
+    K_STICK_X = 81, K_STICK_R = 77, K_CSTICK_R = 60, K_KNOB_R = 30,
     K_STICK_GRAB = 1.4,
     K_FULL = 0.8,
     K_DEAD = 0.1,
@@ -174,7 +174,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
 }
 - (CGRect)safe { return CGRectIntersection(_layout.controls, UIEdgeInsetsInsetRect(self.bounds, dm_game_safe_insets(self.bounds, self.safeAreaInsets, _layout.topSafeOnly))); }
 - (CGRect)corner { if (_layout.separated) return self.safe; UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }
-- (CGFloat)u { if (_layout.separated) { CGRect s = self.safe; return MIN(MIN(s.size.height / 430.0, s.size.width / 700.0), 1.3); } return MIN(self.bounds.size.height / 430.0, 1.3); }
+- (CGFloat)u { if (_layout.separated) { CGRect s = self.safe; return 1.25 * MIN(MIN(s.size.height / 430.0, s.size.width / 700.0), 1.3); } return 1.25 * MIN(self.bounds.size.height / 430.0, 1.3); }
 static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
 - (BOOL)portraitControls { return _layout.separated && self.bounds.size.height > self.bounds.size.width; }
 - (CGPoint)portraitThumbCenter:(BOOL)right {
@@ -189,25 +189,25 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
                        fmin(fmax(point.y, CGRectGetMinY(b)+44+margin), CGRectGetMaxY(b)-margin));
 }
 - (CGPoint)faceCenter { return [self anchor:2 margin:self.faceGap+self.faceHitR]; }
-- (CGFloat)faceGap { return MAX(26, K_FACE_GAP * self.u); }
-- (CGFloat)faceR { return MAX(17, K_FACE_R * self.u); }
+- (CGFloat)faceGap { return MAX(32.5, K_FACE_GAP * self.u); }
+- (CGFloat)faceR { return MAX(21.25, K_FACE_R * self.u); }
 - (CGFloat)faceHitR { return MAX(self.faceR * 1.25, _layout.separated ? 22 : 0); }
 - (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
     switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
 - (CGPoint)stickHome { return [self anchor:0 margin:[self stickR:0]+6]; }
 - (CGPoint)cstickHome { return [self anchor:3 margin:[self stickR:1]+6]; }
 - (CGPoint)stickCentre:(int)i { return i ? self.cstickHome : self.stickHome; }
-- (CGFloat)stickR:(int)i { return i ? 22 : MAX(32, K_STICK_R * self.u); }
+- (CGFloat)stickR:(int)i { return i ? MAX(27.5, K_CSTICK_R * self.u) : MAX(40, K_STICK_R * self.u); }
 - (BOOL)inRightArea:(CGPoint)p { return hypot(p.x - self.cstickHome.x, p.y - self.cstickHome.y) <= MAX([self stickR:1], 22); }
 - (CGPoint)dpadCenter { return [self anchor:1 margin:self.dpadR+6]; }
-- (CGFloat)dpadR { return MAX(22, K_DPAD_R * self.u); }
+- (CGFloat)dpadR { return MAX(27.5, K_DPAD_R * self.u); }
 static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
 static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
     if (_layout.separated) return side(s, b == B_ZR || b == B_R, z ? 82 : 30, CGRectGetMinY(s) + 24);
     CGFloat edge = _layout.separated ? 22 : 0;
     return side(s, b == B_ZR || b == B_R, MAX((z ? K_ZL_X : K_L_X) * u, edge), CGRectGetMinY(s) + MAX((z ? K_ZL_Y : K_L_Y) * u, edge)); }
-- (CGFloat)dropR:(int)b { return (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u; }
+- (CGFloat)dropR:(int)b { return MAX(17, (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u); }
 - (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; CGFloat edge = _layout.separated ? 22 : 0;
     return side(s, b == B_RS, MAX(K_CLICK_X * u, edge), CGRectGetMinY(s) + MAX(K_ZL_Y * u, edge)); }
 - (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, w = MAX(K_PILL_W * u, 54), h = MAX(K_PILL_H * u, 28);
@@ -403,7 +403,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
             CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, K_CLICK_R * u)); placeLabel(_label[b], c, 13 * u);
         } else {
             CGRect rc = [self pillRect:b];
-            setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), 12);
+            setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), MAX(13, 18 * u));
         }
     }
     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};
@@ -429,7 +429,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         _key[b].fillColor = (on ? k_on : k_idle).CGColor; _label[b].foregroundColor = (on ? k_textOn : k_text).CGColor; }
     CGPoint h = self.stickHome, o = [self knobOffset:0];
     CGPoint ch = self.cstickHome, co = [self knobOffset:1];
-    setPath(_cKnob, circlePath(CGPointMake(ch.x + co.x, ch.y + co.y), 9));
+    setPath(_cKnob, circlePath(CGPointMake(ch.x + co.x, ch.y + co.y), [self stickR:1] * (9.0/22.0)));
     _knob.position = CGPointMake(h.x + o.x, h.y + o.y); _knob.fillColor = (_stick[0] ? k_on : k_idle).CGColor;
     [CATransaction commit];
 }
