@@ -46,6 +46,27 @@ compiler configuration rather than excluding cryptographic implementations. Pack
 `-packageAuthorizationProvider netrc`: the default Keychain provider stalled even on public artifact
 downloads on this Mac. Neither signing credentials nor game keys are required for this probe.
 
+The iOS build defines `THREEDS_NO_JIT`, excludes Dynarmic and the CPU shader-code generators, and
+guards their factories. Initialization forces CPU and CPU-shader JIT settings off even if a config
+requests them. FastInterp and the existing shader interpreter remain available; Vulkan/Metal shader
+generation is independent. Keep the shared ARM instruction tick model, which FastInterp also uses.
+The prepared core copy adds the missing `<type_traits>` include required by Xcode 26.3. Internal
+headers use project visibility to avoid flattening duplicate basenames into the installed headers.
+The glslang header prefix is restored from the pinned package's own headers, not another SDK version.
+
+An original ARM11 [smoke program](../../tests/homebrew/smoke.S) prints a marker through
+`OutputDebugString` and calls `ExitProcess`. Its [builder](../../app/tools/build_homebrew.py) assembles
+it with Clang and packages a relocation-free `.3dsx` using LLVM objcopy. On this Mac, objcopy is
+available in the work folder's Rust LLVM tools:
+
+```sh
+python app/tools/build_homebrew.py --objcopy "$(rustc --print sysroot)/lib/rustlib/x86_64-apple-darwin/bin/llvm-objcopy"
+```
+
+The generated fixture is 128 bytes. Unicorn executed its ARM instructions and verified the exact
+message followed by the exit SVC. This validates the fixture, not an iOS emulator boot; that remains
+the next integration check.
+
 ## Relevant existing implementations
 
 - [Cytrus](https://github.com/folium-app/Cytrus) is the 3DS component used by

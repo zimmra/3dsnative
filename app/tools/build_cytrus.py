@@ -19,6 +19,7 @@ PINS = {
     "SharedDependencies": ("https://github.com/folium-app/SharedDependencies", "9787aa9062d8ff220f127052597e6f3ae1dcbc7a"),
     "Vulkan-Headers": ("https://github.com/KhronosGroup/Vulkan-Headers", "6802bb4733b63ed5efd3adb308a6c885ef180ea1"),
     "VulkanMemoryAllocator": ("https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator", "1d8f600fd424278486eade7ed3e877c99f0846b1"),
+    "SPIRV-Headers": ("https://github.com/KhronosGroup/SPIRV-Headers", "496543121ce6419f23d6fa5d7194ba66c36212d2"),
 }
 CYTRUS_REVISION = "d421219acdcb0ad5494ab68777a52a87465fd8ae"
 ZSTD_REVISION = "9baae4431585740983318801beff0a7ae4494291"
@@ -62,6 +63,8 @@ def patch_dependencies(source: Path, target: Path) -> None:
     if original.count(needle) != 1:
         raise RuntimeError("Upstream Crypto++ target changed; review its compile flags")
     patched = original.replace(needle, replacement)
+    # This iOS target never instantiates the native-code CPU JIT.
+    patched = patched.replace('            "lib_dynarmic",\n', "")
     for url, branch, revision in (
         ("https://github.com/jarrodnorwell/PLzmaSDK", "master", PLZMA_REVISION),
         ("https://github.com/krzyzanowskim/OpenSSL", "main", OPENSSL_REVISION),
@@ -99,8 +102,41 @@ def patch_dependencies(source: Path, target: Path) -> None:
             dest.write_text(patched_source)
 
 
-def project(work: Path, folium: Path, shared: Path) -> dict:
-    definitions = ("CPPHTTPLIB_OPENSSL_SUPPORT FOR_CYTRUS HAVE_FASTINTERP HAVE_COREAUDIO "
+def prepare_core(source: Path, target: Path) -> Path:
+    if not target.exists():
+        shutil.copytree(source, target)
+    # <string> and <span> do not promise to include every type trait. Do not
+    # depend on transitive declarations that Xcode 26.3's libc++ omits.
+    header = source / "include/common/hash.h"
+    patched = header.read_text().replace("#include <string>", "#include <string>\n#include <type_traits>")
+    dest = target / "include/common/hash.h"
+    if dest.read_text() != patched:
+        dest.chmod(0o644)
+        dest.write_text(patched)
+    guard = "#if CITRA_ARCH(x86_64) || CITRA_ARCH(arm64)"
+    for relative in ("core/core.cpp", "core/arm/exclusive_monitor.cpp", "video_core/shader/shader.cpp"):
+        original = (source / relative).read_text()
+        if guard not in original:
+            raise RuntimeError(f"Review upstream JIT selection: {relative}")
+        patched = original.replace(guard, "#if !defined(THREEDS_NO_JIT) && (CITRA_ARCH(x86_64) || CITRA_ARCH(arm64))")
+        if relative == "core/core.cpp":
+            needle = "    memory = std::make_unique<Memory::MemorySystem>(*this);"
+            patched = patched.replace(needle, """#ifdef THREEDS_NO_JIT
+    // iOS cannot execute generated CPU code. Enforce this even if an imported
+    // config requests JIT; GPU driver shader compilation is independent.
+    Settings::values.use_cpu_jit.SetValue(false);
+    Settings::values.use_shader_jit.SetValue(false);
+#endif
+""" + needle)
+        dest = target / relative
+        if dest.read_text() != patched:
+            dest.chmod(0o644)
+            dest.write_text(patched)
+    return target
+
+
+def project(work: Path, core: Path, shared: Path) -> dict:
+    definitions = ("THREEDS_NO_JIT CPPHTTPLIB_OPENSSL_SUPPORT FOR_CYTRUS HAVE_FASTINTERP HAVE_COREAUDIO "
                    "HAVE_OPENAL HAVE_SDL3 ENABLE_GDBSTUB ENABLE_SDL3 ENABLE_VULKAN ENABLE_WEB_SERVICE")
     return {
         "name": "CytrusCoreProbe",
@@ -111,17 +147,34 @@ def project(work: Path, folium: Path, shared: Path) -> dict:
         },
         "targets": {"CytrusCore": {
             "type": "library.static", "platform": "iOS",
-            "sources": [{"path": str(folium / "Cytrus/System"), "excludes": ["include"]}],
+            # Keep headers in the project: upstream uses basename includes that
+            # rely on Xcode's target header map as well as rooted includes.
+            "sources": [{"path": str(core), "headerVisibility": "project", "excludes": [
+                "video_core/shader/shader_jit*.cpp", "core/arm/dynarmic/arm_dynarmic*.cpp",
+                "core/arm/dynarmic/arm_exclusive_monitor.cpp",
+            ]}],
             "dependencies": [
-                {"package": "SharedDependencies", "product": "SharedDependencies"},
-                {"package": "Zstd", "products": ["libseekable_format", "libzstd", "libzstdwrapper"]},
+                {"package": "SharedDependencies", "product": "SharedDependencies", "link": True},
+                {"package": "Zstd", "products": ["libseekable_format", "libzstd", "libzstdwrapper"], "link": True},
             ],
+            "preBuildScripts": [{
+                "name": "Restore glslang public header prefix",
+                # The pinned XCFramework exports Include/ and Public/ at its
+                # root, but SPIRV headers include glslang/Include/*.h. Alias the
+                # package headers rather than substituting another SDK version.
+                "script": 'mkdir -p "$DERIVED_FILE_DIR/upstream-headers"\n'
+                          'ln -sfn "$BUILT_PRODUCTS_DIR/include" "$DERIVED_FILE_DIR/upstream-headers/glslang"',
+                "outputFiles": ["$(DERIVED_FILE_DIR)/upstream-headers/glslang"],
+                "showEnvVars": False,
+            }],
             "settings": {"base": {
                 "CODE_SIGNING_ALLOWED": "NO",
                 "CLANG_CXX_LANGUAGE_STANDARD": "gnu++23", "GCC_C_LANGUAGE_STANDARD": "gnu23",
                 "GCC_PREPROCESSOR_DEFINITIONS": "$(inherited) " + definitions,
-                "HEADER_SEARCH_PATHS": ["$(inherited)", str(folium / "Cytrus/System/include"),
+                "HEADER_SEARCH_PATHS": ["$(inherited)", str(core / "include"),
+                                        "$(DERIVED_FILE_DIR)/upstream-headers",
                                         str(work / "upstream/Vulkan-Headers/include"),
+                                        str(work / "upstream/SPIRV-Headers/include"),
                                         str(work / "upstream/VulkanMemoryAllocator/include")],
                 "OTHER_CPLUSPLUSFLAGS": "$(inherited) -Wno-shorten-64-to-32",
             }},
@@ -157,11 +210,13 @@ def main() -> None:
     source = checkout(work, "SharedDependencies")
     checkout(work, "Vulkan-Headers")
     checkout(work, "VulkanMemoryAllocator")
+    checkout(work, "SPIRV-Headers")
     shared = work / "public-deps/SharedDependencies"
     patch_dependencies(source, shared)
+    core = prepare_core(folium / "Cytrus/System", work / "public-deps/Cytrus/System")
     build_source = work / "cytrus-build-source"
     spec = build_source / "project.json"
-    spec.write_text(json.dumps(project(work, folium, shared), indent=2) + "\n")
+    spec.write_text(json.dumps(project(work, core, shared), indent=2) + "\n")
     run(["xcodegen", "generate", "--spec", str(spec), "--project", str(build_source)])
     if args.prepare_only:
         return

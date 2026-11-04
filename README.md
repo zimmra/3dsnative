@@ -1,4 +1,12 @@
-# nxnative
+# 3dsnative — migration in progress
+
+This fork is being converted into an unsigned iOS IPA packer for personal 3DS backups. The current
+baseline reuses Cytrus/Folium's interpreter; static recompilation remains an alternative. See the
+[execution strategy and build probe](docs/research/02-execution-strategy.md) and
+[local setup results](docs/research/00-mac-setup.md). No 3DS game has booted in this fork yet, and the
+IPA packer is not ready. The nxnative documentation below describes the original Switch project.
+
+## Original nxnative project
 
 Play your own Nintendo Switch games natively on iPhone and iPad. Bring your game (its NSP files) and your `prod.keys`; one script turns them into an IPA that you sideload.
 
