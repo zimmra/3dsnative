@@ -13,6 +13,7 @@
 #include "configuration.h"
 #include "input_manager.h"
 #include "network/network.h"
+#include "../../host/runtime.h"
 
 class SmokeWindow final : public Frontend::EmuWindow {
 public:
@@ -23,6 +24,8 @@ public:
 };
 
 static bool RunSmoke(NSString *documents) {
+    if (n3ds_runtime_abi() != N3DS_RUNTIME_ABI)
+        return false;
     NSString *user = [[documents stringByAppendingPathComponent:@"Cytrus"] stringByAppendingString:@"/"];
     FileUtil::SetUserPath(user.UTF8String);
     FileUtil::UpdateUserPath(FileUtil::UserPath::LogDir,

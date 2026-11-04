@@ -4,7 +4,7 @@
 
 [tool.pyright]
 include = ["scripts", "dm/tools", "dm/gfx/tools", "dm/games/game.py", "dm/games/profile_guess.py", "dm/games/settings.py", "dm/ios/tools", "dm/mac", "app/tools", "tests"]
-extraPaths = ["dm/tools", "dm/gfx/tools", "dm/games", "dm/ios/tools", "dm/mac", "dm/tools/fuzz"]
+extraPaths = ["dm/tools", "dm/gfx/tools", "dm/games", "dm/ios/tools", "dm/mac", "dm/tools/fuzz", "app/tools"]
 typeCheckingMode = "basic"
 pythonVersion = "3.14"
 pythonPlatform = "Darwin"

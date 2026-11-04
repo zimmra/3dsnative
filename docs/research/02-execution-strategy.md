@@ -15,7 +15,7 @@ iOS version have been requested. The user identified the target as iPhone Duo (`
 the hardware target, not its emulation frame rate. AOT remains an option if the emulator baseline is inadequate.
 
 The earlier nathsou import and generated-C survey are a retained alternative, not a completed port.
-No game has booted in this repository yet, and neither method has been measured on the target device.
+Omega Ruby now boots and renders in the Intel Simulator with the interpreter; neither method has been measured on the target phone.
 The optional single-job AOT compile survey was interrupted after this strategy change; its existing
 objects remain reusable. It did not complete and supplies no full-build timing result.
 
@@ -65,8 +65,7 @@ python app/tools/build_homebrew.py --objcopy "$(rustc --print sysroot)/lib/rustl
 ```
 
 The generated fixture is 128 bytes. Unicorn executed its ARM instructions and verified the exact
-message followed by the exit SVC. This validates the fixture, not an iOS emulator boot; that remains
-the next integration check.
+message followed by the exit SVC. The subsequent iOS integration check also passed, as recorded below.
 
 `build_cytrus.py --smoke` additionally builds a UIKit integration host with that fixture. Its
 `Documents/smoke-result.json` records loading, the debug SVC marker, the process-exit log and the
@@ -78,8 +77,9 @@ Mac. The structured result reports `passed`, `loaded`, `debug_svc` and `exit_svc
 and both JIT settings false. The screen displays the passing result. Evidence remains under
 `~/Development/3ds-work/logs/smoke-result.json`, `logs/smoke-simulator.log` and
 `setup/smoke-simulator-pass.png`. Symbol inspection of the core archive found no `ARM_Dynarmic`,
-`DynarmicExclusiveMonitor` or `JitEngine` references. The generic-arm64 build is in progress; it has
-not been run on a phone. Omega Ruby has not booted yet.
+`DynarmicExclusiveMonitor` or `JitEngine` references. The generic-arm64 device build also succeeded
+locally in Xcode 26.3 with an iOS 26 app minimum and passed the same archive-symbol check. It has
+not been run on a phone. The commercial-game boot is recorded below.
 
 The initial host skipped `Config{}`, leaving service LLE settings uninitialized and causing an
 `unordered_map::at` exception. The host now follows the upstream lifecycle: initialize paths,
@@ -132,3 +132,52 @@ backend. Package one game per app with a stable title-derived bundle ID and writ
 Use the paid newer-Xcode runner only for a source closure that demonstrably requires that SDK. Keep all
 retail inputs local. GPU shader compilation is a separate operation from CPU JIT and does not by itself
 choose the game CPU execution method.
+
+## Omega Ruby and unsigned packing checkpoint
+
+The private decrypted cartridge boots with the matched update in the Intel iOS 26.3.1 Simulator.
+Both screens render through Vulkan/MoltenVK into separate CAMetalLayers. The language-selection
+screen displays **Ver. 1.4**, confirming the display version despite the CIA's TMD version being
+7280 rather than the initially expected 5120. Simulator-only local input selected English and
+advanced to the Begin game confirmation. This establishes boot, rendering and button response;
+it does not establish a title-screen/new-game/battle/save/reload route or phone performance.
+
+The host obtains filesystem representations inside its boot thread's autorelease pool. Obtaining
+them earlier on the UIKit thread left temporary C buffers invalid during update installation.
+The update installs through the existing AM CIA implementation into Documents on first launch;
+a SHA-256 marker and installed-content check skip unchanged subsequent installs. The base CCI and
+CIA remain private bundle resources; this interpreter route does not need generated game C.
+
+Intel Simulator Metal rejects linear textures backed by shared buffers. The Vulkan texel-buffer
+adaptation uses a private GPU ring and copies committed mapped-upload ranges with transfer/shader
+barriers outside render passes. Device builds retain the upstream shared-buffer path. This fixes
+the observed Metal assertion without omitting guest rendering. Simulator images remain local under
+`~/Development/3ds-work/setup/`; none are committed or uploaded.
+
+[build_ipa_from_3ds.py](../../scripts/build_ipa_from_3ds.py) validates decrypted NCCH/CIA hashes,
+selects the highest matching update by TMD title ID/version, caches private inputs outside the repo,
+builds the generic-arm64 iOS 26 host and creates an unsigned Payload archive. The app executable is
+checked for an unexpected signature and provisioning profile before packaging. Source checkouts and
+binary library revisions are pinned by the runtime builder. No paid runner was needed for this
+checkpoint. The original encrypted `.3ds` is intentionally rejected; use the supplied decrypted CCI:
+
+```sh
+source ~/Development/3ds-work/env.sh
+python scripts/build_ipa_from_3ds.py "/Volumes/ZNAS/Media/Content/Games/ROMs/library/roms/n3ds/Pokemon Omega Ruby-decrypted.cci"
+```
+
+The end-to-end command produced `~/Development/3ds-work/PokemonOmegaRuby.ipa`. This is a development
+candidate, not a gameplay-verified release. The shell adapts nxnative's CAShapeLayer gamepad for
+3DS buttons and a visible C-stick, merges independent touch/keyboard/controller inputs, maps game
+touches only to the lower screen, and offers resolution changes. Touch controls remain visible by
+default even when a controller connects; automatic hiding is optional. Files and saves use Documents.
+The frontend offers an FPS display, and logs performance every ten samples for the phone test.
+It still needs the final Duo fold/motion adaptation, Checkpoint import UI and
+full gameplay verification. The existing SDL-backed audio path is retained for the baseline rather
+than introducing an untested replacement. Repository cleanup and documentation migration remain
+pending the phone performance decision.
+
+The original homebrew smoke test and 16 synthetic container/packaging tests are the reproducible
+checks so far. No iPhone was signed or installed by the agent. Full speed, sustained thermals,
+battle correctness, saving/reloading, imported saves and sampled software-renderer comparisons remain
+unverified. If this interpreter baseline is too slow on the A20 Pro, resume the retained AOT option.

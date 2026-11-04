@@ -3,8 +3,11 @@
 This fork is being converted into an unsigned iOS IPA packer for personal 3DS backups. The current
 baseline reuses Cytrus/Folium's interpreter; static recompilation remains an alternative. See the
 [execution strategy and build probe](docs/research/02-execution-strategy.md) and
-[local setup results](docs/research/00-mac-setup.md). No 3DS game has booted in this fork yet, and the
-IPA packer is not ready. The nxnative documentation below describes the original Switch project.
+[local setup results](docs/research/00-mac-setup.md). The packer now creates an unsigned iOS 26 IPA.
+Omega Ruby with its version 1.4 update renders and accepts input in the Intel Simulator;
+phone performance and complete gameplay remain unverified. See the
+[packing checkpoint](docs/research/02-execution-strategy.md#omega-ruby-and-unsigned-packing-checkpoint).
+The nxnative documentation below describes the original Switch project.
 
 ## Original nxnative project
 

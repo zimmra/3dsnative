@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Build a game-independent Cytrus static-library probe on this Mac.
+"""Build the pinned Cytrus runtime and optional unsigned iOS host on this Mac.
 
-This is a development tool, not the IPA packer. Downloads, patched public
-dependencies, projects and compiler output stay under --work. No game is read.
+This is a development tool, called by the IPA packer. Downloads, patched public
+dependencies, projects and compiler output stay under --work. The default builds
+only public runtime code; --game-resources explicitly adds private game files.
 """
 from __future__ import annotations
 
@@ -12,6 +13,9 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+sys.dont_write_bytecode = True
+from cytrus_patches import simulator_texel_buffers
 
 
 PINS = {
@@ -140,10 +144,49 @@ def prepare_core(source: Path, target: Path) -> Path:
         if dest.read_text() != patched:
             dest.chmod(0o644)
             dest.write_text(patched)
+    header = source / "include/cytrus/bridge.h"
+    patched = header.read_text().replace("void* context;", "extern void* context;")
+    patched = patched.replace("LEDStatusChangedCallback callback;", "extern LEDStatusChangedCallback callback;")
+    patched += "\nnamespace cytrus { void resize_screens(double, double, double, double); }\n"
+    dest = target / "include/cytrus/bridge.h"
+    if dest.read_text() != patched:
+        dest.write_text(patched)
+    bridge = (source / "bridge.cpp").read_text()
+    bridge = bridge.replace("namespace AppleUtils {", "namespace cytrus { void* context{}; LEDStatusChangedCallback callback{}; }\n\nnamespace AppleUtils {", 1)
+    bridge = bridge.replace("Common::Log::Initialize();", 'Common::Log::Initialize("log.txt");', 1)
+    bridge = bridge.replace("        cytrus::callback(cytrus::context, color.x, color.y, color.z);",
+                            "        if (cytrus::callback) cytrus::callback(cytrus::context, color.x, color.y, color.z);")
+    bridge += """
+// The host calls this on the emulation thread, between RunLoop calls. Frame
+// preparation and touch mapping therefore observe the same window dimensions.
+void cytrus::resize_screens(double top_h, double top_w, double bottom_h, double bottom_w) {
+    cntnr.height = top_h; cntnr.width = top_w;
+    cntnr.secondary_height = bottom_h; cntnr.secondary_width = bottom_w;
+    if (cntnr.window) {
+        cntnr.window->SizeChanged(top_h, top_w);
+    }
+    if (cntnr.secondary_window) {
+        cntnr.secondary_window->SizeChanged(bottom_h, bottom_w);
+    }
+}
+"""
+    dest = target / "bridge.cpp"
+    if dest.read_text() != bridge:
+        dest.write_text(bridge)
+    window = (source / "emu_window_vk.cpp").read_text()
+    start = window.index("void EmulationWindow_Vulkan::SizeChanged(")
+    end = window.index("\n}", start) + 2
+    body = window[start:end]
+    body = body.replace("    window_width = m_size_w;", "    window_width = m_size_w;\n    OnFramebufferSizeChanged();")
+    window = window[:start] + body + window[end:]
+    dest = target / "emu_window_vk.cpp"
+    if dest.read_text() != window:
+        dest.write_text(window)
+    simulator_texel_buffers(source, target)
     return target
 
 
-def project(work: Path, core: Path, shared: Path, smoke: bool = False) -> dict:
+def project(work: Path, core: Path, shared: Path, smoke: bool = False, game_resources: Path | None = None) -> dict:
     definitions = ("THREEDS_NO_JIT CPPHTTPLIB_OPENSSL_SUPPORT FOR_CYTRUS HAVE_FASTINTERP HAVE_COREAUDIO "
                    "HAVE_OPENAL HAVE_SDL3 ENABLE_GDBSTUB ENABLE_SDL3 ENABLE_VULKAN ENABLE_WEB_SERVICE")
     spec = {
@@ -212,22 +255,33 @@ def project(work: Path, core: Path, shared: Path, smoke: bool = False) -> dict:
                 "HEADER_SEARCH_PATHS": [str(shared / "Sources/boost/include")],
             }},
         }
-    if smoke:
-        frameworks = ("UIKit Foundation Metal QuartzCore AVFoundation CoreGraphics CoreMedia CoreVideo CoreImage "
+    spec["targets"]["N3DSRuntime"] = {
+        "type": "library.static", "platform": "iOS",
+        "sources": [str(Path(__file__).resolve().parents[1] / "host/runtime.mm")],
+        "dependencies": [{"target": "CytrusCore", "link": True}],
+        "settings": {"base": {
+            "CODE_SIGNING_ALLOWED": "NO", "CLANG_CXX_LANGUAGE_STANDARD": "gnu++23",
+            "HEADER_SEARCH_PATHS": [str(core / "include")],
+            "GCC_PREPROCESSOR_DEFINITIONS": "$(inherited) " + definitions,
+        }},
+    }
+    spec["schemes"]["N3DSRuntime"] = {"build": {"targets": {"N3DSRuntime": "all"}}}
+    frameworks = ("UIKit Foundation Metal QuartzCore AVFoundation CoreGraphics CoreMedia CoreVideo CoreImage CoreText "
                       "AudioToolbox CoreAudio CoreMotion "
                       "GameController CoreHaptics CoreBluetooth VideoToolbox Security CFNetwork Network "
                       "SystemConfiguration Accelerate IOSurface").split()
+    app_dependencies = [{"target": "N3DSRuntime"},
+                        {"package": "SharedDependencies", "product": "SharedDependencies", "link": False},
+                        {"package": "SharedDependencies", "product": "CytrusSDL3"},
+                        {"package": "OpenSSL", "product": "OpenSSL"}]
+    app_dependencies += [{"sdk": f"{name}.framework"} for name in frameworks]
+    app_dependencies += [{"sdk": "libz.tbd"}, {"sdk": "libiconv.tbd"}]
+    if smoke:
         spec["targets"]["CytrusSmoke"] = {
             "type": "application", "platform": "iOS",
             "sources": [str(Path(__file__).resolve().parents[1] / "ios/tests/SmokeMain.mm"),
                         {"path": str(work / "homebrew/smoke.3dsx"), "buildPhase": "resources"}],
-            "dependencies": [{"target": "CytrusCore"},
-                             # Its object files are already in libCytrusCore.a.
-                             {"package": "SharedDependencies", "product": "SharedDependencies", "link": False},
-                             {"package": "SharedDependencies", "product": "CytrusSDL3"},
-                             {"package": "OpenSSL", "product": "OpenSSL"}]
-                            + [{"sdk": f"{name}.framework"} for name in frameworks]
-                            + [{"sdk": "libz.tbd"}, {"sdk": "libiconv.tbd"}],
+            "dependencies": app_dependencies,
             "settings": {"base": {
                 "PRODUCT_BUNDLE_IDENTIFIER": "com.zimmra.3dsnative.smoke",
                 # The user approved iOS 26 to reuse the pinned binary libraries.
@@ -244,6 +298,32 @@ def project(work: Path, core: Path, shared: Path, smoke: bool = False) -> dict:
             }},
         }
         spec["schemes"]["CytrusSmoke"] = {"build": {"targets": {"CytrusSmoke": "all"}}}
+    if game_resources:
+        metadata = json.loads((game_resources / "game.json").read_text())
+        title = metadata["title_id"].lower()
+        spec["targets"]["N3DSGame"] = {
+            "type": "application", "platform": "iOS",
+            "sources": [str(Path(__file__).resolve().parents[1] / "ios/Sources"),
+                        {"path": str(game_resources), "name": "Game", "type": "folder", "buildPhase": "resources"}],
+            "dependencies": app_dependencies + [{"framework": str(work / "upstream/Folium/Dependencies/MoltenVK.xcframework"),
+                                                 "embed": True, "codeSign": False}],
+            "settings": {"base": {
+                "PRODUCT_BUNDLE_IDENTIFIER": f"org.threedsnative.title{title}",
+                "PRODUCT_NAME": "3dsnative", "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
+                "TARGETED_DEVICE_FAMILY": "1", "CODE_SIGNING_ALLOWED": "NO",
+                "HEADER_SEARCH_PATHS": [str(Path(__file__).resolve().parents[1] / "host")],
+            }},
+            "info": {"path": str(work / "cytrus-build-source/GameInfo.plist"), "properties": {
+                "CFBundleDisplayName": metadata["name"], "UILaunchScreen": {},
+                "UIFileSharingEnabled": True, "LSSupportsOpeningDocumentsInPlace": True,
+                "UIRequiresFullScreen": True,
+                "NSCameraUsageDescription": "Use the camera for supported game features.",
+                "NSMicrophoneUsageDescription": "Use the microphone for supported game features.",
+                "CFBundleURLTypes": [{"CFBundleURLName": "Simulator input", "CFBundleURLSchemes": ["n3dsnative"]}],
+                "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"],
+            }},
+        }
+        spec["schemes"]["N3DSGame"] = {"build": {"targets": {"N3DSGame": "all"}}}
     return spec
 
 
@@ -254,6 +334,7 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--smoke", action="store_true", help="Build the UIKit host with the original homebrew fixture")
+    parser.add_argument("--game-resources", type=Path, help="Private Game folder containing game.json and the backup files")
     args = parser.parse_args()
     work = args.work.expanduser().resolve()
     repo = Path(__file__).resolve().parents[2]
@@ -263,6 +344,11 @@ def main() -> None:
         parser.error("--jobs must be positive")
     if args.smoke and not (work / "homebrew/smoke.3dsx").is_file():
         parser.error("Build the original fixture with app/tools/build_homebrew.py first")
+    game_resources = args.game_resources.expanduser().resolve() if args.game_resources else None
+    if game_resources and (game_resources == repo or repo in game_resources.parents):
+        parser.error("Private game resources must be outside the repository")
+    if game_resources and args.smoke:
+        parser.error("Choose the homebrew smoke host or the game host")
     for tool in ("git", "xcodegen", "xcodebuild"):
         if not shutil.which(tool):
             parser.error(f"Missing prerequisite: {tool}")
@@ -271,6 +357,8 @@ def main() -> None:
         (work / child).mkdir(parents=True, exist_ok=True)
     os.environ["TMPDIR"] = str(work / "tmp") + "/"
     folium = checkout(work, "Folium")
+    if game_resources:
+        run(["git", "sparse-checkout", "add", "Dependencies/MoltenVK.xcframework"], cwd=folium)
     run(["git", "submodule", "update", "--init", "--depth=1", "Cytrus"], cwd=folium)
     if run(["git", "rev-parse", "HEAD"], cwd=folium / "Cytrus") != CYTRUS_REVISION:
         raise RuntimeError("Cytrus revision differs from the reviewed core")
@@ -289,14 +377,14 @@ def main() -> None:
     core = prepare_core(folium / "Cytrus/System", work / "public-deps/Cytrus/System")
     build_source = work / "cytrus-build-source"
     spec = build_source / "project.json"
-    spec.write_text(json.dumps(project(work, core, shared, args.smoke), indent=2) + "\n")
+    spec.write_text(json.dumps(project(work, core, shared, args.smoke, game_resources), indent=2) + "\n")
     run(["xcodegen", "generate", "--spec", str(spec), "--project", str(build_source)])
     if args.prepare_only:
         return
     arch = "arm64" if args.sdk == "iphoneos" else "x86_64"
     platform = "device" if args.sdk == "iphoneos" else "simulator"
     log = work / f"logs/cytrus-build-{args.sdk}.log"
-    scheme = "CytrusSmoke" if args.smoke else "CytrusCore"
+    scheme = "N3DSGame" if game_resources else "CytrusSmoke" if args.smoke else "CytrusCore"
     command = ["xcodebuild", "-project", str(build_source / "CytrusCoreProbe.xcodeproj"),
                "-scheme", scheme, "-configuration", "Release", "-sdk", args.sdk,
                "-jobs", str(args.jobs), "-derivedDataPath", str(work / f"builds/cytrus-{platform}"),
