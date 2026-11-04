@@ -16,6 +16,8 @@ Observed on 2026-11-03. This is a setup record, not a claim that the 3DS runtime
 | Metal | Installed the missing Metal Toolchain 17C7003j; `-std=metal3.0` with iOS 17 compiled and linked a probe metallib |
 | XcodeGen | 2.46.0 generated a static-library project; unsigned x86_64 Simulator build succeeded |
 | CMake/Ninja | 4.4.5 / 1.13.2 built static-library probes for both device and Simulator |
+| Python | Homebrew 3.14.10; isolated `3ds-work/venv`, `pip check` passed |
+| Python CPU tools | Capstone distribution 5.0.9 and Unicorn 2.1.4 decoded/executed an ARM instruction successfully |
 
 All probes, output and the upstream inspection checkout are in `~/Development/3ds-work`.
 `env.sh` there configures a work-local temporary directory and caches for subsequent commands.
@@ -54,6 +56,10 @@ host `ffc00000`, Unicorn `7fc00000`. The generator emits host `sqrtf` directly. 
 needs explicit handling and further tests in the portability phase. This is not a passing differential
 suite. The upstream script also returns exit status zero after reporting failures; fix that before CI
 relies on its status. No generator changes have been made yet.
+
+The later Python 3.14 environment passed its dependency and decode/execute checks. Capstone's 5.0.9
+distribution reports `5.0.7` through its module's `__version__`; record distribution metadata when
+checking its installed version. The full differential result above came from the initial oracle environment.
 
 The user reports sideloading with Sideloadly, iLoader and Impactor. Available virtual-address
 entitlements still require device verification through the chosen signing method.
