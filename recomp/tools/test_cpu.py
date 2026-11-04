@@ -462,8 +462,10 @@ int main(int argc, char **argv) {
     data = open(outp, 'rb').read()
     rec = 49 * 4 + SCRATCH_SIZE
     fails = 0
+    compared = 0
     from collections import Counter
     failcls = Counter()
+    skipped = Counter()
     for k, (cls, words, insts, regs, flags, vregs, fpscr, mem) in enumerate(cases):
         d = data[k * rec:(k + 1) * rec]
         c_regs = list(struct.unpack_from('<15I', d, 0))
@@ -474,7 +476,9 @@ int main(int argc, char **argv) {
         try:
             u_regs, u_flags, u_ge, u_v, u_fps, u_mem = run_unicorn(words, regs, flags, vregs, fpscr, mem, cls == 'thumb')
         except Exception as e:
+            skipped[type(e).__name__ + ': ' + str(e)] += 1
             continue
+        compared += 1
         diffs = []
         for x in range(15):
             if c_regs[x] != u_regs[x]:
@@ -502,8 +506,12 @@ int main(int argc, char **argv) {
                 print('   in: ' + ' '.join('%08x' % x for x in regs) + ' flags=%s' % format(flags, '09b'))
                 for dd in diffs[:8]:
                     print('   ' + dd)
-    print('%d/%d cases failed %s' % (fails, len(cases), dict(failcls)))
+    print('%d/%d compared cases failed %s (generated %d)' % (fails, compared, dict(failcls), len(cases)))
+    if skipped:
+        print('Oracle errors: %s' % dict(skipped))
+    # Oracle failures must be visible to CI, including a run that compared no cases.
+    return 1 if fails else 2 if skipped or not compared else 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
