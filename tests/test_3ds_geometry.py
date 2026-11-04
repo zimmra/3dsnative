@@ -10,6 +10,8 @@ class Rect(c.Structure):
     _fields_ = [('x',c.c_double),('y',c.c_double),('w',c.c_double),('h',c.c_double)]
 class Geometry(c.Structure):
     _fields_ = [('top',Rect),('bottom',Rect),('controls',Rect),('landscape_options',c.c_int)]
+class Point(c.Structure):
+    _fields_ = [('x',c.c_double),('y',c.c_double)]
 
 class Layout(unittest.TestCase):
     @classmethod
@@ -17,13 +19,15 @@ class Layout(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         root = Path(cls.tmp.name)
         header = Path(__file__).resolve().parents[1]/'app/ios/Sources/N3DSGeometry.h'
-        (root/'check.c').write_text(f'#include "{header}"\nN3DSGeometry layout(N3DSRect b,N3DSRect d,int p,int s,int f) {{ return n3ds_geometry(b,d,p,s,f); }}\n')
+        (root/'check.c').write_text(f'#include "{header}"\nN3DSGeometry layout(N3DSRect b,N3DSRect d,int p,int s,int f) {{ return n3ds_geometry(b,d,p,s,f); }}\nN3DSPoint anchor(N3DSRect b,int g) {{ return n3ds_control_anchor(b,g); }}\n')
         env = os.environ.copy()
         env.pop('IPHONEOS_DEPLOYMENT_TARGET', None); env.pop('SDKROOT', None)
         subprocess.run(['cc','-shared','-fPIC',str(root/'check.c'),'-o',str(root/'layout.so'),'-lm'],check=True,env=env)
         cls.lib = c.CDLL(str(root/'layout.so'))
         cls.lib.layout.argtypes = [Rect,Rect,c.c_int,c.c_int,c.c_int]
         cls.lib.layout.restype = Geometry
+        cls.lib.anchor.argtypes = [Rect,c.c_int]
+        cls.lib.anchor.restype = Point
     @classmethod
     def tearDownClass(cls): cls.tmp.cleanup()
     def layout(self, b, display=0, flip=0, partial=0, fold=None):
@@ -59,3 +63,11 @@ class Layout(unittest.TestCase):
         layout=self.layout((0,0,800,1000),partial=1,fold=(0,500,800,0))
         self.assertLessEqual(layout.top.y+layout.top.h,500)
         self.assertGreaterEqual(layout.bottom.y,500)
+    def test_face_buttons_are_rightmost_and_cstick_is_inward(self):
+        for width in (320,390,800,1000):
+            stick,dpad,face,cstick = [self.lib.anchor(Rect(0,0,width,260),i) for i in range(4)]
+            self.assertLess(stick.x,dpad.x)
+            self.assertLess(dpad.x,cstick.x)
+            self.assertGreater(cstick.x,width/2)
+            self.assertLess(cstick.x,face.x)
+            self.assertGreater(cstick.y,face.y)

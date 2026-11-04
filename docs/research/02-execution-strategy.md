@@ -181,3 +181,51 @@ The original homebrew smoke test and 16 synthetic container/packaging tests are 
 checks so far. No iPhone was signed or installed by the agent. Full speed, sustained thermals,
 battle correctness, saving/reloading, imported saves and sampled software-renderer comparisons remain
 unverified. If this interpreter baseline is too slow on the A20 Pro, resume the retained AOT option.
+
+## Native Duo, audio and display update
+
+The user reports that the interpreter build runs well on their iPhone Duo. They also report silent
+audio, SDK 26 compatibility presentation and crowded control groups. The interpreter is therefore
+the current execution route; AOT is retained as research rather than required for this game.
+
+The first shell had no Playback audio session, and upstream Auto sink ordering selected OpenAL
+before RemoteIO. The host now establishes/re-establishes a Playback session, explicitly chooses the
+CoreAudio sink, and uses a RemoteIO implementation that installs its callback before starting the
+unit. It uses the actual emulated input sample rate, reports AudioUnit errors, and disposes the unit
+on shutdown. The previous upstream sample-rate query used an uninitialized property-size field
+and a 32-bit integer for a Float64 property; the sink now returns the known input format rate.
+The local Simulator log confirms output type 7 and RemoteIO startup at 32728 Hz. Audible output and
+interruption recovery on the phone still require the user's confirmation.
+
+The working ns2ios-shell integration is the reference for scene-backed windows, native hinge updates,
+reserved-region observation (including inactive zero-height folds), current-window drawable scale,
+and touch cancellation on geometry changes. The new portable geometry keeps rendering and stylus
+mapping in agreement. Portrait and tabletop poses ignore saved landscape preferences. Regular
+landscape offers 50/50 side-by-side, top only, bottom only and large/small vertical; the vertical
+preset exposes a flip button. Four separate control-group anchors replace the crowded paired
+stick/D-pad and face/C-stick arrangement. Hidden guest screens retain offscreen swapchains so
+single-screen presentation does not suppress guest GPU work.
+
+[Apple's Duo preparation guide](https://developer.apple.com/iphone-duo/prepare/) explains why the
+SDK 26 executable cannot enable full native Duo presentation through plist changes alone.
+[duo_shell.py](../../app/tools/duo_shell.py) exports only the public runtime static archive and three
+public frameworks from the local build. It records source and file hashes and refuses private game
+formats. The manual [Duo workflow](../../.github/workflows/duo-shell.yml) compiles only the UIKit shell
+and links the final executable with Xcode 27.1. The first successful
+[runner job](https://github.com/zimmra/3dsnative/actions/runs/41784131476) completed in 39 seconds.
+It verifies actual Mach-O SDK 27.1, native hinge/reserved-region symbols, scene metadata and the
+absence of private game resources. These checks establish compiled native support; physical fold
+and display-handoff behavior still require a phone test.
+
+The downloaded reusable app lives under `~/Development/3ds-work/native-duo-shell/3dsnative.app`.
+The packing command automatically verifies/reuses it, preserves that newer-SDK executable and adds
+all private game resources locally. It decodes the backup's tiled RGB565 SMDH icon into opaque iOS
+icon PNGs locally; neither artwork nor backups enter the runner or Git. The stable game bundle ID
+is unchanged. The final unsigned output remains `~/Development/3ds-work/PokemonOmegaRuby.ipa`.
+
+The current synthetic suite includes five tests of the actual C geometry function and an icon
+format/tile test, in addition to container/update/packaging checks. Together with the explicit
+right-control ordering check they cover 23 tests. Per the user's follow-up, ABXY is the rightmost
+group; the C-stick sits below and inward toward the center, rather than on the centerline.
+Runtime-source and shell-source hashes are separate: changing UIKit geometry requires only another
+short shell compile/link on the runner, while the local ARM11 runtime remains reusable.

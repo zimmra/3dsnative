@@ -33,6 +33,15 @@ def source_digest() -> str:
     return h.hexdigest()
 
 
+def runtime_digest() -> str:
+    # UIKit layout changes do not invalidate the expensive local runtime archive.
+    files = list((REPO/'app/host').glob('*')) + [REPO/'app/tools/build_cytrus.py', REPO/'app/tools/cytrus_patches.py']
+    h = hashlib.sha256()
+    for path in sorted(p for p in files if p.is_file()):
+        h.update(str(path.relative_to(REPO)).encode()); h.update(path.read_bytes())
+    return h.hexdigest()
+
+
 def archive(folder: Path, output: Path) -> None:
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as z:
         for path in sorted(folder.rglob('*')):
@@ -73,7 +82,7 @@ def export(work: Path, output: Path) -> None:
         relative = path.relative_to(stage)
         if relative.parts[0] not in ('Frameworks','libN3DSRuntime.a','runtime.json') or path.suffix.lower() in ('.cci','.3ds','.cia','.cxi','.3dsx','.keys') or 'Game' in relative.parts:
             raise ValueError(f'Unexpected file in public runtime input: {relative}')
-    manifest = {'abi':1, 'source_sha256':source_digest(),
+    manifest = {'abi':1, 'source_sha256':source_digest(), 'runtime_source_sha256':runtime_digest(),
                 'source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip(),
                 'files':{str(p.relative_to(stage)):digest(p) for p in stage.rglob('*') if p.is_file() and p.name != 'runtime.json'}}
     (stage/'runtime.json').write_text(json.dumps(manifest,indent=2)+'\n')
@@ -90,8 +99,8 @@ def build(inputs: Path, output: Path, work: Path) -> None:
         raise ValueError('Native hinge declarations are absent')
     stage = work/'input'; unpack(inputs, stage)
     metadata = json.loads((stage/'runtime.json').read_text())
-    if metadata['source_sha256'] != source_digest():
-        raise ValueError('Runtime and shell sources differ')
+    if metadata.get('runtime_source_sha256') != runtime_digest():
+        raise ValueError('Runtime sources differ from the locally built archive')
     for relative, expected in metadata['files'].items():
         if digest(stage/relative) != expected:
             raise ValueError(f'Runtime input hash mismatch: {relative}')
@@ -117,7 +126,9 @@ def build(inputs: Path, output: Path, work: Path) -> None:
             'NSCameraUsageDescription':'Use the camera for supported game features.',
             'NSMicrophoneUsageDescription':'Use the microphone for supported game features.'}
     (app/'Info.plist').write_bytes(plistlib.dumps(info))
-    metadata.update(sdk=sdk_version, executable_sha256=digest(app/'3dsnative'))
+    metadata.update(sdk=sdk_version, source_sha256=source_digest(),
+                    shell_source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip(),
+                    executable_sha256=digest(app/'3dsnative'))
     (app/'native-duo.json').write_text(json.dumps(metadata,indent=2)+'\n')
     verify(app)
     archive(app.parent,output)

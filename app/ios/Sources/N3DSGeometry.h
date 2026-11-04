@@ -48,7 +48,7 @@ static inline N3DSGeometry n3ds_geometry(N3DSRect safe, N3DSRect division, int p
 }
 // Separate four control groups instead of nesting a stick inside another group.
 static inline N3DSPoint n3ds_control_anchor(N3DSRect b, int group) {
-    double x[] = {.14, .37, .69, .90};
+    double x[] = {.14, .37, .86, .63};
     double y[] = {.48, .77, .48, .82};
     return (N3DSPoint){b.x+b.w*x[group], b.y+44+fmax(0,b.h-44)*y[group]};
 }
