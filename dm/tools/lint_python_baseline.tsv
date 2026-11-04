@@ -72,8 +72,6 @@ pyright	dm/ios/tools/pack_ipa.py	reportCallIssue	1	Expected 4 positional argumen
 pyright	dm/ios/tools/xcode_projects.py	reportArgumentType	1	Argument of type "Element[str] | None" cannot be assigned to parameter "parent" of type "Element[Any]" in function "SubElement" Type "Element[str] | None" is not assignable to type "Element[Any]" "None" is not assignable to "Element[Any]"
 pyright	dm/ios/tools/xcode_projects.py	reportOptionalMemberAccess	1	"findall" is not a known attribute of "None"
 pyright	dm/tools/check_thread_cuts.py	reportArgumentType	1	Argument of type "ModuleSpec | None" cannot be assigned to parameter "spec" of type "ModuleSpec" in function "module_from_spec" Type "ModuleSpec | None" is not assignable to type "ModuleSpec" "None" is not assignable to "ModuleSpec"
-pyright	dm/tools/check_thread_cuts.py	reportMissingImports	1	Import "unicorn" could not be resolved
-pyright	dm/tools/check_thread_cuts.py	reportMissingImports	1	Import "unicorn.arm64_const" could not be resolved
 pyright	dm/tools/check_thread_cuts.py	reportOptionalMemberAccess	1	"exec_module" is not a known attribute of "None"
 pyright	dm/tools/check_thread_cuts.py	reportOptionalMemberAccess	1	"loader" is not a known attribute of "None"
 pyright	dm/tools/docs_symptoms.py	reportOptionalMemberAccess	1	"group" is not a known attribute of "None"
@@ -101,7 +99,6 @@ pyright	dm/tools/patch_nso.py	reportOptionalSubscript	3	Object of type "None" is
 pyright	dm/tools/patch_nso.py	reportWildcardImportFromLibrary	1	Wildcard import from a library not allowed
 pyright	dm/tools/sdis.py	reportWildcardImportFromLibrary	1	Wildcard import from a library not allowed
 pyright	dm/tools/tests/test_astral_fps.py	reportArgumentType	1	Argument of type "ModuleSpec | None" cannot be assigned to parameter "spec" of type "ModuleSpec" in function "module_from_spec" Type "ModuleSpec | None" is not assignable to type "ModuleSpec" "None" is not assignable to "ModuleSpec"
-pyright	dm/tools/tests/test_astral_fps.py	reportMissingImports	2	Import "unicorn" could not be resolved
 pyright	dm/tools/tests/test_astral_fps.py	reportOptionalMemberAccess	1	"UC_ARCH_ARM64" is not a known attribute of "None"
 pyright	dm/tools/tests/test_astral_fps.py	reportOptionalMemberAccess	1	"UC_ARM64_REG_LR" is not a known attribute of "None"
 pyright	dm/tools/tests/test_astral_fps.py	reportOptionalMemberAccess	1	"UC_ARM64_REG_S1" is not a known attribute of "None"

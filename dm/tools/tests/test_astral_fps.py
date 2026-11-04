@@ -26,7 +26,7 @@ class Timing(unittest.TestCase):
     base, area, state, obj, stack = 0x4000000, 0x2000000, 0x10cec000, 0x6000000, 0x6100000
 
     def setUp(self):
-        self.u = uc.Uc(uc.UC_ARCH_ARM64, uc.UC_MODE_ARM)
+        self.u = uc.Uc(uc.UC_ARCH_ARM64, uc.UC_MODE_ARM)  # pyright: ignore[reportPrivateImportUsage] -- Unicorn's documented public API lacks explicit typed re-exports.
         for a, n in ((self.base, 0xe00000), (self.area, 0x20000), (self.state, 0x4000), (self.obj, 0x1000), (self.stack, 0x10000)):
             self.u.mem_map(a, n)
         self.cursor = self.area - self.base
