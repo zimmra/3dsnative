@@ -252,14 +252,14 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
     if (topOmitted) top = CGRectMake(-402,-242,400,240);
     if (bottomOmitted) bottom = CGRectMake(-322,-242,320,240);
     self.flip.hidden = !geometry.landscape_options || display != N3DS_VERTICAL;
-    self.flip.frame = CGRectMake(CGRectGetMidX(controls)-22, CGRectGetMinY(controls)+54,44,44);
+    self.flip.frame = CGRectMake(CGRectGetMidX(controls)+104, geometry.bottom_menu ? CGRectGetMaxY(controls)-54 : CGRectGetMinY(controls)+54,44,44);
     NSString *line = [NSString stringWithFormat:@"bounds %@ safe %@ fold %@ partial=%d top %@ bottom %@ controls %@", NSStringFromCGRect(bounds), NSStringFromCGRect(safe), NSStringFromCGRect(CGRectMake(division.x,division.y,division.w,division.h)), self.partiallyOpen, NSStringFromCGRect(top), NSStringFromCGRect(bottom), NSStringFromCGRect(controls)];
     if (![line isEqual:self.layoutLog]) { self.layoutLog = line; NSLog(@"3dsnative Duo layout: %@", line); }
     BOOL changed = !CGRectEqualToRect(self.top.frame, top) || !CGRectEqualToRect(self.bottom.frame, bottom);
     if (changed) { self.screenTouch = nil; n3ds_touch(false, 0, 0); }
     self.top.frame = top; self.bottom.frame = bottom;
     self.gamepad.frame = self.view.bounds;
-    dm_gamepad_arrange(self.gamepad, (DmLayout){bottomOmitted ? CGRectZero : bottom, controls, YES, NO});
+    dm_gamepad_arrange(self.gamepad, (DmLayout){bottomOmitted ? CGRectZero : bottom, controls, YES, NO, geometry.control_unit, geometry.bottom_menu});
     [self.top layoutIfNeeded]; [self.bottom layoutIfNeeded];
     self.status.frame = CGRectInset(safe, 24, 24);
     self.fps.frame = CGRectMake(safe.origin.x + 8, safe.origin.y + 8, 150, 24);

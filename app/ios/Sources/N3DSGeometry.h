@@ -4,53 +4,93 @@
 typedef struct { double x, y, w, h; } N3DSRect;
 typedef struct { double x, y; } N3DSPoint;
 typedef enum { N3DS_SPLIT, N3DS_TOP_ONLY, N3DS_BOTTOM_ONLY, N3DS_VERTICAL } N3DSDisplay;
-typedef struct { N3DSRect top, bottom, controls; int landscape_options; } N3DSGeometry;
+typedef struct { N3DSRect top, bottom, controls; int landscape_options; double control_unit; int bottom_menu; } N3DSGeometry;
 static inline N3DSRect n3ds_fit(N3DSRect b, double aspect) {
     double w = fmax(0, fmin(b.w, b.h * aspect)), h = w / aspect;
     return (N3DSRect){b.x + (b.w-w)/2, b.y + (b.h-h)/2, w, h};
 }
-static inline N3DSGeometry n3ds_geometry(N3DSRect safe, N3DSRect division, int partially_open, N3DSDisplay display, int flip) {
-    N3DSGeometry result = {0};
-    if (safe.w <= 0 || safe.h <= 0) return result;
-    int horizontal_fold = partially_open && division.w >= safe.w * .9 && division.w > division.h &&
-        division.y > safe.y && division.y + division.h < safe.y + safe.h;
-    int portrait = safe.h >= safe.w;
-    N3DSRect canvas = safe;
-    if (horizontal_fold) {
-        N3DSRect upper = {safe.x, safe.y, safe.w, division.y-safe.y-8};
-        N3DSRect lower = {safe.x, division.y+division.h+8, safe.w, safe.y+safe.h-division.y-division.h-8};
-        result.top = n3ds_fit(upper, 400./240.);
-        double band = fmin(lower.h*.50, 290);
-        canvas = lower; canvas.h = fmax(0, lower.h-band-8);
-        result.bottom = n3ds_fit(canvas, 320./240.);
-        result.controls = (N3DSRect){lower.x, lower.y+canvas.h+8, lower.w, band};
-        return result;
-    }
-    double band = fmin(portrait ? 290 : 200, safe.h * (portrait ? .34 : .43));
-    // Keep the enlarged face buttons below the shoulder row on short displays.
-    if (!portrait) band = fmin(safe.h * .60, fmax(170, band));
-    canvas.h = fmax(0, safe.h-band-8);
-    result.controls = (N3DSRect){safe.x, safe.y+canvas.h+8, safe.w, band};
-    result.landscape_options = !portrait && !partially_open;
-    if (partially_open) display = N3DS_SPLIT;
-    if (portrait || display == N3DS_VERTICAL) {
-        double fraction = portrait ? .45 : .70;
-        if (flip && !portrait) fraction = 1-fraction;
-        N3DSRect a = {canvas.x, canvas.y, canvas.w, fmax(0, canvas.h-8)*fraction};
-        N3DSRect b = {canvas.x, canvas.y+a.h+8, canvas.w, fmax(0, canvas.h-a.h-8)};
-        result.top = n3ds_fit(a, 400./240.); result.bottom = n3ds_fit(b, 320./240.);
-    } else if (display == N3DS_TOP_ONLY) result.top = n3ds_fit(canvas, 400./240.);
-    else if (display == N3DS_BOTTOM_ONLY) result.bottom = n3ds_fit(canvas, 320./240.);
-    else {
-        double width = fmax(0, canvas.w-8)/2;
-        result.top = n3ds_fit((N3DSRect){canvas.x,canvas.y,width,canvas.h}, 400./240.);
-        result.bottom = n3ds_fit((N3DSRect){canvas.x+width+8,canvas.y,width,canvas.h}, 320./240.);
-    }
-    return result;
+static inline double n3ds_portrait_unit(N3DSRect safe) {
+    double width = fmin(safe.w,safe.h), height = fmax(safe.w,safe.h);
+    return 1.25 * fmin(fmin(fmin(290,height*.34)/430, width/700),1.3);
 }
-// Separate four control groups instead of nesting a stick inside another group.
+static inline double n3ds_control_radius(double u, int group) {
+    switch (group) {
+        case 0: return fmax(40,77*u);
+        case 1: return fmax(27.5,48*u);
+        case 2: return fmax(21.25,27*u);
+        default: return fmax(27.5,60*u);
+    }
+}
+static inline double n3ds_face_gap(double u) { return fmax(32.5,50*u); }
+static inline double n3ds_face_hit(double u) { return fmax(22,n3ds_control_radius(u,2)*1.25); }
+static inline double n3ds_control_grab(double u, int group) {
+    if (group == 0) return fmax(22,n3ds_control_radius(u,0)*1.4);
+    if (group == 1) return fmax(22,n3ds_control_radius(u,1)*1.3);
+    if (group == 2) return n3ds_face_gap(u)+fmax(n3ds_control_radius(u,2)*1.6,n3ds_face_hit(u));
+    return fmax(22,n3ds_control_radius(u,3));
+}
+static inline N3DSRect n3ds_control_body(N3DSRect b, int bottom_menu) {
+    if (bottom_menu) b.h = fmax(0,b.h-64);
+    return b;
+}
 static inline N3DSPoint n3ds_control_anchor(N3DSRect b, int group) {
     double x[] = {.14, .37, .86, .63};
     double y[] = {.48, .77, .48, .82};
     return (N3DSPoint){b.x+b.w*x[group], b.y+44+fmax(0,b.h-44)*y[group]};
+}
+static inline N3DSPoint n3ds_control_position(N3DSRect controls, int group, double u, int bottom_menu) {
+    N3DSRect b = n3ds_control_body(controls,bottom_menu);
+    double margin = group == 2 ? n3ds_face_gap(u)+n3ds_face_hit(u) : n3ds_control_radius(u,group)+6;
+    N3DSPoint p = n3ds_control_anchor(b,group);
+    p.x = fmin(fmax(p.x,b.x+margin),b.x+b.w-margin);
+    p.y = fmin(fmax(p.y,b.y+44+margin),b.y+b.h-margin);
+    return p;
+}
+static inline N3DSRect n3ds_small_display(N3DSRect lower, double u, double aspect) {
+    N3DSPoint left = n3ds_control_position(lower,0,u,1), right = n3ds_control_position(lower,2,u,1);
+    N3DSPoint dpad = n3ds_control_position(lower,1,u,1), stick = n3ds_control_position(lower,3,u,1);
+    double x = left.x+n3ds_control_grab(u,0)+8;
+    double end = right.x-n3ds_control_grab(u,2)-8;
+    double bottom = fmin(dpad.y-n3ds_control_grab(u,1),stick.y-n3ds_control_grab(u,3))-8;
+    return n3ds_fit((N3DSRect){x,lower.y+8,fmax(0,end-x),fmax(0,bottom-lower.y-8)},aspect);
+}
+static inline N3DSGeometry n3ds_geometry(N3DSRect safe, N3DSRect division, int partially_open, N3DSDisplay display, int flip) {
+    N3DSGeometry result = {0};
+    if (safe.w <= 0 || safe.h <= 0) return result;
+    result.control_unit = n3ds_portrait_unit(safe);
+    double required = 44+2*fmax(n3ds_control_radius(result.control_unit,0)+6,n3ds_face_gap(result.control_unit)+n3ds_face_hit(result.control_unit));
+    int portrait = safe.h >= safe.w;
+    int horizontal_fold = (partially_open || portrait) && division.w >= safe.w*.9 && division.w > division.h &&
+        division.y > safe.y && division.y+division.h < safe.y+safe.h;
+    result.landscape_options = !portrait && !partially_open;
+    if (partially_open) display = N3DS_SPLIT;
+    if (portrait || horizontal_fold || display == N3DS_VERTICAL) {
+        // Flat portrait uses the same upper/lower panel arrangement as a bent Duo.
+        double lower_height = fmax(safe.h*.5,fmin(safe.h*.78,required+80));
+        double cut = horizontal_fold ? division.y : safe.y+safe.h-lower_height;
+        double gap = horizontal_fold ? division.h : 0;
+        N3DSRect upper = {safe.x,safe.y,safe.w,fmax(0,cut-safe.y-8)};
+        N3DSRect lower = {safe.x,cut+gap+8,safe.w,fmax(0,safe.y+safe.h-cut-gap-8)};
+        result.controls = lower; result.bottom_menu = 1;
+        int bottom_large = !portrait && !horizontal_fold && display == N3DS_VERTICAL && flip;
+        if (bottom_large) {
+            result.bottom = n3ds_fit(upper,320./240.);
+            result.top = n3ds_small_display(lower,result.control_unit,400./240.);
+        } else {
+            result.top = n3ds_fit(upper,400./240.);
+            result.bottom = n3ds_small_display(lower,result.control_unit,320./240.);
+        }
+        return result;
+    }
+    double band = fmin(safe.h*.60,fmax(required,fmin(200,safe.h*.43)));
+    N3DSRect canvas = safe; canvas.h = fmax(0,safe.h-band-8);
+    result.controls = (N3DSRect){safe.x,safe.y+canvas.h+8,safe.w,band};
+    if (display == N3DS_TOP_ONLY) result.top = n3ds_fit(canvas,400./240.);
+    else if (display == N3DS_BOTTOM_ONLY) result.bottom = n3ds_fit(canvas,320./240.);
+    else {
+        double width = fmax(0,canvas.w-8)/2;
+        result.top = n3ds_fit((N3DSRect){canvas.x,canvas.y,width,canvas.h},400./240.);
+        result.bottom = n3ds_fit((N3DSRect){canvas.x+width+8,canvas.y,width,canvas.h},320./240.);
+    }
+    return result;
 }

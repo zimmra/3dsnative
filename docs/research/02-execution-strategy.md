@@ -259,3 +259,29 @@ and keep the C-stick inward. The right stick now scales with the reference 60:77
 proportion instead of remaining a fixed-size nub on the expanded display. Its knob and hit area
 follow the same radius. Native Duo display presets, icon and stable bundle identity are retained.
 This delivery uses bundle build number 3 so it is distinguishable from the preceding build.
+
+## Consistent inner-display controls and batch packing
+
+The user confirms build 3's audio, native Duo presentation and performance work well. Build 4
+uses the approved portrait control size as an orientation-independent scale for book and landscape
+layouts. Flat portrait shares the book-style upper/lower panel arrangement, honoring a reported
+inactive hinge division as well as a bent pose. Landscape preferences still apply only to regular
+landscape. In stacked layouts, Select/Menu/Start and the vertical-layout flip button move to the
+bottom row. The smaller display expands into the freed space between control hit targets; its
+stylus region excludes their actual grab radii. Vertical flip swaps which guest screen is large
+while retaining the large screen above the small one.
+
+Thirty synthetic tests cover the portable geometry, equal control scale, touch-target exclusion,
+container metadata, update selection, icons and unsigned ZIP packing. The revised UIKit sources
+also compile locally for the Intel iOS Simulator. Physical Duo geometry remains a user check for
+each layout revision. The ARM11/audio runtime is unchanged, so only one short public shell build
+is required on the newer-Xcode runner.
+
+The batch command is `python3 scripts/build_ipas_from_3ds.py "/path/to/backups"`. It selects one
+decrypted base per title and a matching newest decrypted update. An encrypted duplicate of the
+same update version does not make that selection ambiguous; a newer encrypted-only update still
+blocks a silent downgrade. After local packing, every archive is checked for CRC integrity,
+unique paths, native shell identity, executable permissions, title identity, icons, input hashes
+and absence of signature resources. All backups, artwork, local caches, verification reports and
+IPAs stay outside Git. Packaging other titles establishes archive integrity, not gameplay support;
+Omega Ruby remains the title with user-reported device gameplay.
