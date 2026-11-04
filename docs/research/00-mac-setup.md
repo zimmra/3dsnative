@@ -5,6 +5,7 @@ Observed on 2026-11-03. This is a setup record, not a claim that the 3DS runtime
 | Check | Result |
 | --- | --- |
 | Host | Intel `x86_64`, macOS 15.8.2 (24H232) |
+| Resources | 8 GiB RAM, four logical CPUs; keep heavy build concurrency low |
 | Xcode | 26.3 (17C529) |
 | Device and Simulator SDK | iOS 26.2 |
 | Installed iOS runtime | iOS 26.3.1 (23D8133) |
@@ -18,6 +19,8 @@ Observed on 2026-11-03. This is a setup record, not a claim that the 3DS runtime
 | CMake/Ninja | 4.4.5 / 1.13.2 built static-library probes for both device and Simulator |
 | Python | Homebrew 3.14.10; isolated `3ds-work/venv`, `pip check` passed |
 | Python CPU tools | Capstone distribution 5.0.9 and Unicorn 2.1.4 decoded/executed an ARM instruction successfully |
+| Native libraries | Homebrew Capstone 5.0.9, Unicorn 2.1.4 and SDL3 3.4.18; native link/run probe passed |
+| Optional interpreter research tools | Rust 1.95.0, arm64-device and x86_64-Simulator targets, LLVM tools; all under `3ds-work` |
 
 All probes, output and the upstream inspection checkout are in `~/Development/3ds-work`.
 `env.sh` there configures a work-local temporary directory and caches for subsequent commands.
@@ -57,9 +60,28 @@ needs explicit handling and further tests in the portability phase. This is not 
 suite. The upstream script also returns exit status zero after reporting failures; fix that before CI
 relies on its status. No generator changes have been made yet.
 
+After importing the pinned source, the test runner was changed to return failure for mismatches or
+oracle errors and report the actual comparison count. The same seed compared **1,671** cases, with
+three VFP mismatches. It exposed 329 previously silent oracle errors: 308 invalid instructions,
+eight unmapped writes, eleven unmapped reads and two CPU exceptions. The generator is unchanged.
+
 The later Python 3.14 environment passed its dependency and decode/execute checks. Capstone's 5.0.9
 distribution reports `5.0.7` through its module's `__version__`; record distribution metadata when
 checking its installed version. The full differential result above came from the initial oracle environment.
+
+## Private extraction and AOT survey
+
+Both validated inputs extracted successfully under `3ds-work/PokemonOmegaRuby`; each has 145 CROs
+and one CRS, with identical module filenames. The updated main code's SHA-256 is
+`ff2ce8f4e95ce7dd0448629be43a8e6524df8ed81a848f52bddc5da06ffd7e80`.
+The update-only code/CRO analysis generated 79,944 functions, 331,012 dispatch entries and 331,061,254
+bytes of C across 215 files in 112.33 seconds wall time. Maximum RSS was 2,709,475,328 bytes and peak
+memory footprint was 2,946,740,224 bytes. One discovered Thumb UDF remains an analysis finding.
+
+This is an update-code survey, not an applied-update game build: the base and update RomFS images
+remain separate. All generated C, binaries and full module listings stay outside the repository.
+The single-job Simulator compile was deliberately interrupted after the user made AOT optional;
+there is no completed compile-time measurement. See [execution strategy](02-execution-strategy.md).
 
 The user reports sideloading with Sideloadly, iLoader and Impactor. Available virtual-address
 entitlements still require device verification through the chosen signing method.

@@ -115,7 +115,7 @@ class Containers(unittest.TestCase):
         self.put("unrelated.cia", cia(title=UPDATE + 0x100, version=99))
         selected = find_update(base)
         assert selected is not None
-        self.assertEqual(selected.path, wanted)
+        self.assertEqual(selected.path, wanted.resolve())
 
     def test_newest_encrypted_update_does_not_fall_back_to_old(self):
         base = self.base()
