@@ -76,8 +76,18 @@ def export(work: Path, output: Path) -> None:
     # An explicit allowlist: never export the containing app or its Game folder.
     shutil.copyfile(products/'libN3DSRuntime.a', stage/'libN3DSRuntime.a')
     frameworks = products/'3dsnative.app/Frameworks'
+    def writable_copy(source, destination):
+        dest = Path(destination)
+        if dest.exists():
+            dest.chmod(dest.stat().st_mode | 0o200)
+        shutil.copyfile(source, destination)
+        shutil.copymode(source, destination)
+        dest.chmod(dest.stat().st_mode | 0o200)
+        return str(dest)
     for name in ('SDL3', 'OpenSSL', 'MoltenVK'):
-        shutil.copytree(frameworks/f'{name}.framework', stage/'Frameworks'/f'{name}.framework', dirs_exist_ok=True)
+        # SwiftPM's OpenSSL binary is read-only. Keep this owned export reusable
+        # while retaining executable bits, without copying filesystem flags.
+        shutil.copytree(frameworks/f'{name}.framework', stage/'Frameworks'/f'{name}.framework', dirs_exist_ok=True, copy_function=writable_copy)
     for path in stage.rglob('*'):
         relative = path.relative_to(stage)
         if relative.parts[0] not in ('Frameworks','libN3DSRuntime.a','runtime.json') or path.suffix.lower() in ('.cci','.3ds','.cia','.cxi','.3dsx','.keys') or 'Game' in relative.parts:
