@@ -20,6 +20,8 @@ PINS = {
     "Vulkan-Headers": ("https://github.com/KhronosGroup/Vulkan-Headers", "6802bb4733b63ed5efd3adb308a6c885ef180ea1"),
     "VulkanMemoryAllocator": ("https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator", "1d8f600fd424278486eade7ed3e877c99f0846b1"),
     "SPIRV-Headers": ("https://github.com/KhronosGroup/SPIRV-Headers", "496543121ce6419f23d6fa5d7194ba66c36212d2"),
+    "BoostSerialization": ("https://github.com/boostorg/serialization", "91c265be640294fbac4190b5084f9570f06f72ba"),
+    "BoostIostreams": ("https://github.com/boostorg/iostreams", "dacdb3db57e9f372ad575f02a45b5efb439d8889"),
 }
 CYTRUS_REVISION = "d421219acdcb0ad5494ab68777a52a87465fd8ae"
 ZSTD_REVISION = "9baae4431585740983318801beff0a7ae4494291"
@@ -65,6 +67,12 @@ def patch_dependencies(source: Path, target: Path) -> None:
     patched = original.replace(needle, replacement)
     # This iOS target never instantiates the native-code CPU JIT.
     patched = patched.replace('            "lib_dynarmic",\n', "")
+    # CHD support belongs to other console cores, not the 3DS runtime. It also
+    # pulls an unrelated Swift PLzma wrapper into the static archive.
+    patched = patched.replace('            "libchdr",\n', "")
+    # Dynamic frameworks cannot be folded into a static archive. Expose SDL's
+    # binary product separately so the final app links and embeds it once.
+    patched = patched.replace("    products: [", '    products: [\n        .library(name: "CytrusSDL3", targets: ["lib_sdl3"]),', 1)
     for url, branch, revision in (
         ("https://github.com/jarrodnorwell/PLzmaSDK", "master", PLZMA_REVISION),
         ("https://github.com/krzyzanowskim/OpenSSL", "main", OPENSSL_REVISION),
@@ -135,15 +143,16 @@ def prepare_core(source: Path, target: Path) -> Path:
     return target
 
 
-def project(work: Path, core: Path, shared: Path) -> dict:
+def project(work: Path, core: Path, shared: Path, smoke: bool = False) -> dict:
     definitions = ("THREEDS_NO_JIT CPPHTTPLIB_OPENSSL_SUPPORT FOR_CYTRUS HAVE_FASTINTERP HAVE_COREAUDIO "
                    "HAVE_OPENAL HAVE_SDL3 ENABLE_GDBSTUB ENABLE_SDL3 ENABLE_VULKAN ENABLE_WEB_SERVICE")
-    return {
+    spec = {
         "name": "CytrusCoreProbe",
         "options": {"deploymentTarget": {"iOS": "17.0"}},
         "packages": {
             "SharedDependencies": {"path": str(shared)},
             "Zstd": {"url": "https://github.com/jarrodnorwell/zstd", "revision": ZSTD_REVISION},
+            "OpenSSL": {"url": "https://github.com/krzyzanowskim/OpenSSL", "revision": OPENSSL_REVISION},
         },
         "targets": {"CytrusCore": {
             "type": "library.static", "platform": "iOS",
@@ -152,10 +161,21 @@ def project(work: Path, core: Path, shared: Path) -> dict:
             "sources": [{"path": str(core), "headerVisibility": "project", "excludes": [
                 "video_core/shader/shader_jit*.cpp", "core/arm/dynarmic/arm_dynarmic*.cpp",
                 "core/arm/dynarmic/arm_exclusive_monitor.cpp",
-            ]}],
+                # Optional host video recording, not guest audio decoding.
+                # The packer does not expose a video-dumper frontend.
+                "core/dumping/ffmpeg_backend.cpp", "common/dynamic_library/ffmpeg.cpp",
+                "video_core/video_core.cpp",
+            ]}, {
+                # This flag gates only the renderer factory; the software
+                # renderer sources are otherwise compiled unconditionally.
+                "path": str(core / "video_core/video_core.cpp"),
+                "compilerFlags": ["-DENABLE_SOFTWARE_RENDERER"],
+            }],
             "dependencies": [
                 {"package": "SharedDependencies", "product": "SharedDependencies", "link": True},
                 {"package": "Zstd", "products": ["libseekable_format", "libzstd", "libzstdwrapper"], "link": True},
+                {"target": "BoostSerialization", "link": True},
+                {"target": "BoostFileDescriptor", "link": True},
             ],
             "preBuildScripts": [{
                 "name": "Restore glslang public header prefix",
@@ -181,6 +201,50 @@ def project(work: Path, core: Path, shared: Path) -> dict:
         }},
         "schemes": {"CytrusCore": {"build": {"targets": {"CytrusCore": "all"}}}},
     }
+    # Folium's bundled Boost binaries omit x86_64 Simulator. Compile the exact
+    # matching public sources on both architectures, avoiding an ABI split.
+    for name, source in (("BoostSerialization", work / "upstream/BoostSerialization/src"),
+                         ("BoostFileDescriptor", work / "upstream/BoostIostreams/src/file_descriptor.cpp")):
+        spec["targets"][name] = {
+            "type": "library.static", "platform": "iOS", "sources": [str(source)],
+            "settings": {"base": {
+                "CODE_SIGNING_ALLOWED": "NO", "CLANG_CXX_LANGUAGE_STANDARD": "gnu++23",
+                "HEADER_SEARCH_PATHS": [str(shared / "Sources/boost/include")],
+            }},
+        }
+    if smoke:
+        frameworks = ("UIKit Foundation Metal QuartzCore AVFoundation CoreGraphics CoreMedia CoreVideo CoreImage "
+                      "AudioToolbox CoreAudio CoreMotion "
+                      "GameController CoreHaptics CoreBluetooth VideoToolbox Security CFNetwork Network "
+                      "SystemConfiguration Accelerate IOSurface").split()
+        spec["targets"]["CytrusSmoke"] = {
+            "type": "application", "platform": "iOS",
+            "sources": [str(Path(__file__).resolve().parents[1] / "ios/tests/SmokeMain.mm"),
+                        {"path": str(work / "homebrew/smoke.3dsx"), "buildPhase": "resources"}],
+            "dependencies": [{"target": "CytrusCore"},
+                             # Its object files are already in libCytrusCore.a.
+                             {"package": "SharedDependencies", "product": "SharedDependencies", "link": False},
+                             {"package": "SharedDependencies", "product": "CytrusSDL3"},
+                             {"package": "OpenSSL", "product": "OpenSSL"}]
+                            + [{"sdk": f"{name}.framework"} for name in frameworks]
+                            + [{"sdk": "libz.tbd"}, {"sdk": "libiconv.tbd"}],
+            "settings": {"base": {
+                "PRODUCT_BUNDLE_IDENTIFIER": "com.zimmra.3dsnative.smoke",
+                # The user approved iOS 26 to reuse the pinned binary libraries.
+                # Locally compiled C++ objects can retain their lower floor.
+                "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
+                "CODE_SIGNING_ALLOWED": "NO", "CLANG_CXX_LANGUAGE_STANDARD": "gnu++23",
+                "HEADER_SEARCH_PATHS": [str(core / "include")],
+                "GCC_PREPROCESSOR_DEFINITIONS": "$(inherited) " + definitions,
+            }},
+            "info": {"path": str(work / "cytrus-build-source/SmokeInfo.plist"), "properties": {
+                "CFBundleDisplayName": "3dsnative Smoke", "UILaunchScreen": {},
+                "UIFileSharingEnabled": True, "LSSupportsOpeningDocumentsInPlace": True,
+                "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
+            }},
+        }
+        spec["schemes"]["CytrusSmoke"] = {"build": {"targets": {"CytrusSmoke": "all"}}}
+    return spec
 
 
 def main() -> None:
@@ -189,6 +253,7 @@ def main() -> None:
     parser.add_argument("--sdk", choices=["iphoneos", "iphonesimulator"], default="iphonesimulator")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--smoke", action="store_true", help="Build the UIKit host with the original homebrew fixture")
     args = parser.parse_args()
     work = args.work.expanduser().resolve()
     repo = Path(__file__).resolve().parents[2]
@@ -196,6 +261,8 @@ def main() -> None:
         parser.error("--work must be outside the repository")
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.smoke and not (work / "homebrew/smoke.3dsx").is_file():
+        parser.error("Build the original fixture with app/tools/build_homebrew.py first")
     for tool in ("git", "xcodegen", "xcodebuild"):
         if not shutil.which(tool):
             parser.error(f"Missing prerequisite: {tool}")
@@ -211,20 +278,27 @@ def main() -> None:
     checkout(work, "Vulkan-Headers")
     checkout(work, "VulkanMemoryAllocator")
     checkout(work, "SPIRV-Headers")
+    for name in ("BoostSerialization", "BoostIostreams"):
+        boost = checkout(work, name)
+        for header in (boost / "include").rglob("*.hpp"):
+            bundled = source / "Sources/boost/include" / header.relative_to(boost / "include")
+            if not bundled.is_file() or bundled.read_bytes() != header.read_bytes():
+                raise RuntimeError(f"Boost source/header mismatch: {header}")
     shared = work / "public-deps/SharedDependencies"
     patch_dependencies(source, shared)
     core = prepare_core(folium / "Cytrus/System", work / "public-deps/Cytrus/System")
     build_source = work / "cytrus-build-source"
     spec = build_source / "project.json"
-    spec.write_text(json.dumps(project(work, core, shared), indent=2) + "\n")
+    spec.write_text(json.dumps(project(work, core, shared, args.smoke), indent=2) + "\n")
     run(["xcodegen", "generate", "--spec", str(spec), "--project", str(build_source)])
     if args.prepare_only:
         return
     arch = "arm64" if args.sdk == "iphoneos" else "x86_64"
     platform = "device" if args.sdk == "iphoneos" else "simulator"
     log = work / f"logs/cytrus-build-{args.sdk}.log"
+    scheme = "CytrusSmoke" if args.smoke else "CytrusCore"
     command = ["xcodebuild", "-project", str(build_source / "CytrusCoreProbe.xcodeproj"),
-               "-scheme", "CytrusCore", "-configuration", "Release", "-sdk", args.sdk,
+               "-scheme", scheme, "-configuration", "Release", "-sdk", args.sdk,
                "-jobs", str(args.jobs), "-derivedDataPath", str(work / f"builds/cytrus-{platform}"),
                "-clonedSourcePackagesDirPath", str(work / "cache/cytrus-spm"),
                "-packageCachePath", str(work / "cache/swiftpm"),
@@ -233,6 +307,13 @@ def main() -> None:
     print(f"Building {arch}; compiler output: {log}", flush=True)
     with log.open("w") as output:
         subprocess.run(command, check=True, stdout=output, stderr=subprocess.STDOUT)
+    library = work / f"builds/cytrus-{platform}/Build/Products/Release-{args.sdk}/libCytrusCore.a"
+    symbols = subprocess.run(["xcrun", "nm", "-g", str(library)], check=True,
+                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+    forbidden = ("ARM_Dynarmic", "DynarmicExclusiveMonitor", "JitEngine")
+    if any(name in symbols for name in forbidden):
+        raise RuntimeError("The iOS archive still references a CPU JIT implementation")
+    print(f"Built interpreter-only core: {library}", flush=True)
 
 
 if __name__ == "__main__":

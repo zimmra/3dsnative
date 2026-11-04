@@ -32,7 +32,8 @@ python app/tools/build_cytrus.py --sdk iphoneos
 ```
 
 Use `--prepare-only` to fetch and generate without compiling. The Simulator target is x86_64 and the
-device target is generic arm64, both with iOS 17 deployment. Source checkouts, writable dependency
+device target is generic arm64. Locally compiled runtime objects retain an iOS 17 floor, while the
+app targets iOS 26: the user approved reusing upstream binaries that require iOS 26. Source checkouts, writable dependency
 copies, Swift package caches, generated projects and logs stay in the work folder. SwiftPM binary
 dependencies retain the checksums in their pinned manifests; OpenSSL and PLzmaSDK are pinned to the
 revisions in Folium's resolved graph rather than upstream's moving branches.
@@ -66,6 +67,40 @@ python app/tools/build_homebrew.py --objcopy "$(rustc --print sysroot)/lib/rustl
 The generated fixture is 128 bytes. Unicorn executed its ARM instructions and verified the exact
 message followed by the exit SVC. This validates the fixture, not an iOS emulator boot; that remains
 the next integration check.
+
+`build_cytrus.py --smoke` additionally builds a UIKit integration host with that fixture. Its
+`Documents/smoke-result.json` records loading, the debug SVC marker, the process-exit log and the
+core status; passing requires all of these checks. It uses software graphics and null audio for the
+CPU/kernel test, and does not validate game rendering or sound.
+
+On 2026-11-03 the unsigned x86_64 app built and ran in the dedicated iOS 26.3.1 Simulator on this Intel
+Mac. The structured result reports `passed`, `loaded`, `debug_svc` and `exit_svc` true, core status 0,
+and both JIT settings false. The screen displays the passing result. Evidence remains under
+`~/Development/3ds-work/logs/smoke-result.json`, `logs/smoke-simulator.log` and
+`setup/smoke-simulator-pass.png`. Symbol inspection of the core archive found no `ARM_Dynarmic`,
+`DynarmicExclusiveMonitor` or `JitEngine` references. The generic-arm64 build is in progress; it has
+not been run on a phone. Omega Ruby has not booted yet.
+
+The initial host skipped `Config{}`, leaving service LLE settings uninitialized and causing an
+`unordered_map::at` exception. The host now follows the upstream lifecycle: initialize paths,
+logging, config, input and networking before loading. `SetUserPath` expects a trailing separator;
+construct it explicitly because NSString's path-component helper removes it. The software renderer
+factory is enabled at its translation unit for the headless test; Vulkan remains the game default.
+
+The tiny fixture has empty rodata/data segments. The upstream `Process::Run` tries zero-byte heap
+allocations for both and logs two misleading out-of-space diagnostics; the code segment maps and
+executes successfully. This loader diagnostic remains open. Fresh NAND defaults, the missing online
+client certificate and the lack of a title ID in a homebrew `.3dsx` also produce initialization
+diagnostics. The smoke result checks guest execution and exit, not a clean commercial-game log.
+
+The minimal build omits the optional FFmpeg host video recorder. Guest AAC decoding remains on
+the upstream FAAD2 implementation. Matching Boost 1.92 serialization and file-descriptor sources are
+built locally for both architectures because Folium's bundled Boost frameworks omit Intel Simulator.
+All 301 corresponding headers match the pinned dependency package byte for byte; the build tool
+checks this before compiling them. No private game input is needed for these builds.
+The shared package's CHD reader belongs to other console cores and is omitted. Its Swift PLzma
+wrapper otherwise introduced duplicate object linkage. SDL and OpenSSL are dynamic frameworks and
+must be linked/embedded by the final app rather than folded into the static runtime archive.
 
 ## Relevant existing implementations
 
