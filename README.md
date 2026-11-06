@@ -1,4 +1,22 @@
-# nxnative
+# 3dsnative — migration in progress
+
+This fork is being converted into an unsigned iOS IPA packer for personal 3DS backups. The current
+baseline reuses Cytrus/Folium's interpreter; static recompilation remains an alternative. See the
+[execution strategy and build probe](docs/research/02-execution-strategy.md) and
+[local setup results](docs/research/00-mac-setup.md). The packer now creates an unsigned iOS 26 IPA.
+Omega Ruby with its version 1.4 update renders and accepts input in the Intel Simulator,
+and the user reports good performance on iPhone Duo. The newer SDK 27.1 shell adds native
+Duo presentation, automatic pose layouts, landscape display options, a game icon and RemoteIO audio.
+The user confirms the build 3 presentation, audio and performance work well on the phone.
+Complete gameplay validation remains pending. See the
+[packing checkpoint](docs/research/02-execution-strategy.md#omega-ruby-and-unsigned-packing-checkpoint).
+The nxnative documentation below describes the original Switch project.
+
+To pack all decrypted cartridge backups in a folder, matching decrypted updates and reusing the
+verified native Duo shell, run `python3 scripts/build_ipas_from_3ds.py "/path/to/backups"`.
+Outputs and per-title verification reports stay in `~/Development/3ds-work`.
+
+## Original nxnative project
 
 Play your own Nintendo Switch games natively on iPhone and iPad. Bring your game (its NSP files) and your `prod.keys`; one script turns them into an IPA that you sideload.
 

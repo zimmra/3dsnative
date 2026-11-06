@@ -4,6 +4,16 @@
 .iosdd_*/
 .DS_Store
 __pycache__/
+# Private backups, generated homebrew binaries, keys and packaged apps stay in
+# ~/Development/3ds-work. Keep only original source and permitted small profiles.
+*.3[dD][sS]
+*.3[dD][sS][xX]
+*.[cC][cC][iI]
+*.[cC][iI][aA]
+*.[cC][xX][iI]
+*.keys
+*.ipa
+*.app/
 # Made from each shader build's Mac outputs (c1_guard.py, cb_extent.py; the NSP script makes them), not committed
 dm/games/*/c1_full.tsv
 dm/games/*/cb_extent.tsv

@@ -15,7 +15,7 @@ import importlib.util
 from pathlib import Path
 import struct
 
-from unicorn import Uc, UcError, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_CODE
+from unicorn import Uc, UcError, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_CODE  # pyright: ignore[reportPrivateImportUsage] -- Unicorn's documented public API lacks explicit typed re-exports.
 from unicorn.arm64_const import UC_ARM64_REG_X0, UC_ARM64_REG_X1, UC_ARM64_REG_X22, UC_ARM64_REG_SP, UC_ARM64_REG_LR, UC_ARM64_REG_PC
 
 from nso2elf import load

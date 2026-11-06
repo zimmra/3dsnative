@@ -6,13 +6,7 @@
 name: lint-c
 
 on:
-  pull_request:
-    paths: ['dm/host/**', 'dm/gfx/**.[chm]', 'dm/gfx/**.mm', 'dm/gfx/**.cpp', 'dm/gfx/**/Makefile', .clang-tidy, dm/tools/lint_c.py,
-            dm/tools/lint_c_baseline.tsv, .github/workflows/lint-c.yml]
-  push:
-    branches: [main]
-    paths: ['dm/host/**', 'dm/gfx/**.[chm]', 'dm/gfx/**.mm', 'dm/gfx/**.cpp', 'dm/gfx/**/Makefile', .clang-tidy, dm/tools/lint_c.py,
-            dm/tools/lint_c_baseline.tsv, .github/workflows/lint-c.yml]
+  # Legacy Switch lint uses a paid Xcode runner; dispatch only during migration.
   workflow_dispatch:
 
 permissions:
