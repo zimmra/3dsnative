@@ -31,6 +31,8 @@ struct Commands {
     bool touched{};
     float x{}, y{};
     uint32_t top_w{}, top_h{}, bottom_w{}, bottom_h{}, resolution{};
+    uint32_t speed{100};
+    bool speed_dirty{true};
     n3ds_perf perf{};
 } commands;
 std::mutex mutex;
@@ -101,7 +103,7 @@ int n3ds_run(const n3ds_boot_config *config_ptr) {
     {
         std::lock_guard lock(mutex);
         if (commands.active) return 2;
-        commands.active = true; commands.stop = false; commands.input_dirty = true;
+        commands.active = true; commands.stop = false; commands.input_dirty = true; commands.speed_dirty = true;
     }
     auto& system = Core::System::GetInstance();
     bool logging = false;
@@ -124,6 +126,7 @@ int n3ds_run(const n3ds_boot_config *config_ptr) {
         Settings::values.output_type.SetValue(AudioCore::SinkType::CoreAudio);
         Settings::values.graphics_api.SetValue(Settings::GraphicsAPI::Vulkan);
         Settings::values.cpu_clock_percentage.SetValue(100);
+        Settings::values.frame_limit.SetValue(100);
         Settings::values.is_new_3ds.SetValue(config.new_3ds);
         Settings::values.resolution_factor.SetValue(config.resolution_scale ? config.resolution_scale : 1);
         install_update(config);
@@ -144,9 +147,18 @@ int n3ds_run(const n3ds_boot_config *config_ptr) {
                 if (commands.stop) break;
                 pending = commands;
                 commands.input_dirty = commands.touch_dirty = commands.resize_dirty = false;
+                commands.speed_dirty = false;
                 commands.resolution = 0;
             }
             @autoreleasepool {
+                if (pending.speed_dirty) {
+                    Settings::ResetTemporaryFrameLimit();
+                    Settings::values.frame_limit.SetValue(pending.speed);
+                    // Vulkan recreates the swapchain when vsync changes. Avoid
+                    // its display-refresh cap while running the guest faster.
+                    Settings::values.use_vsync.SetValue(pending.speed == 100);
+                    LOG_INFO(Core, "Playback speed target: {}%", pending.speed);
+                }
                 if (pending.resize_dirty) {
                     cytrus::resize_screens(pending.top_h, pending.top_w, pending.bottom_h, pending.bottom_w);
                     bottom_w = pending.bottom_w; bottom_h = pending.bottom_h;
@@ -230,6 +242,14 @@ void n3ds_resize(uint32_t tw, uint32_t th, uint32_t bw, uint32_t bh) {
 void n3ds_resolution(uint32_t scale) {
     if (scale < 1 || scale > 10) return;
     std::lock_guard lock(mutex); commands.resolution = scale;
+}
+void n3ds_set_speed(uint32_t percent) {
+    if (percent != 100 && percent != 200) return;
+    { std::lock_guard lock(mutex); commands.speed = percent; commands.speed_dirty = true; }
+    wake.notify_all();
+}
+uint32_t n3ds_get_speed(void) {
+    std::lock_guard lock(mutex); return commands.speed;
 }
 n3ds_perf n3ds_get_perf(void) {
     std::lock_guard lock(mutex); return commands.perf;

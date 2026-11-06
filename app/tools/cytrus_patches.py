@@ -10,7 +10,7 @@ def audio_fixes(source: Path, target: Path) -> None:
         "audio_core/dsp_interface.cpp": [
             ("    sink->SetCallback(\n", "    time_stretcher.SetOutputSampleRate(sink->GetNativeSampleRate());\n    sink->SetCallback(\n"),
             (" });\n    time_stretcher.SetOutputSampleRate(sink->GetNativeSampleRate());", " });"),
-            ("perf_stats.emulation_speed <= 95;", "perf_stats.emulation_speed <= 0.95;"),
+            ("perf_stats.emulation_speed <= 95;", "(perf_stats.emulation_speed <= 0.95 || Settings::GetFrameLimit() > 100);"),
             ("fifo.Pop(buffer, num_frames - frames_written)", "fifo.Pop(buffer + 2 * frames_written, num_frames - frames_written)"),
         ],
     }

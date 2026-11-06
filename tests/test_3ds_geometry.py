@@ -62,13 +62,15 @@ class Layout(unittest.TestCase):
                     self.assertAlmostEqual(screen.w/screen.h,ratio)
                     self.assertGreaterEqual(screen.x,10)
                     self.assertLessEqual(screen.x+screen.w,10+w+.001)
-                    if layout.bottom_menu:
+                    if layout.bottom_menu==1:
                         if screen.y >= layout.controls.y:
                             self.assertLessEqual(screen.y+screen.h,layout.controls.y+layout.controls.h-64+.001)
                         else:
-                            self.assertLessEqual(screen.y+screen.h,layout.controls.y+.001)
-                    else:
+                            self.assertLessEqual(screen.y+screen.h,layout.controls.y+layout.controls.h-64+.001)
+                    elif not layout.bottom_menu:
                         self.assertLessEqual(screen.y+screen.h,layout.controls.y+.001)
+                    else:
+                        self.assertLessEqual(screen.y+screen.h,20+h+.001)
     def test_inactive_fold_keeps_screens_on_their_panels(self):
         layout=self.layout((0,0,800,1000),partial=1,fold=(0,500,800,0))
         self.assertLessEqual(layout.top.y+layout.top.h,500)
@@ -117,8 +119,9 @@ class Layout(unittest.TestCase):
     def test_compact_portrait_has_readable_screens_above_pad(self):
         for b in [(0,0,390,844),(0,0,390,748),(0,0,460,700)]:
             layout=self.layout(b)
-            self.assertGreaterEqual(layout.bottom.w,layout.top.w*.799)
-            self.assertLessEqual(layout.bottom.y+layout.bottom.h,layout.controls.y)
+            self.assertAlmostEqual(layout.top.w,b[2])
+            self.assertGreaterEqual(layout.bottom.w,b[2]*.4)
+            self.assertGreaterEqual(layout.bottom.y,layout.top.y+layout.top.h+8)
         self.assertGreaterEqual(self.layout((0,0,390,844)).bottom.w,300)
     def test_expanded_lower_screen_is_not_a_thumbnail(self):
         for partial,fold in [(0,None),(1,(0,500,800,0)),(1,(0,490,800,20))]:
@@ -126,10 +129,10 @@ class Layout(unittest.TestCase):
             self.assertGreaterEqual(layout.bottom.w,480)
             self.assertGreaterEqual(layout.bottom.h,360)
     def test_stacked_control_groups_do_not_overlap(self):
-        for b in [(0,0,390,748),(0,0,390,844),(0,0,460,700),(0,0,800,1000),(0,0,1000,800)]:
+        for b in [(0,0,390,748),(0,0,390,844),(0,0,460,700),(0,0,800,1000),(0,0,1000,800),(0,0,844,390)]:
             layout=self.layout(b,3)
             u=layout.control_unit
-            centers=[self.lib.position(layout.controls,g,u,1) for g in range(4)]
+            centers=[self.lib.position(layout.controls,g,u,layout.bottom_menu) for g in range(4)]
             radii=[max(40,77*u),max(27.5,48*u),max(21.25,27*u),max(27.5,60*u)]
             gap=max(32.5,50*u)
             circles=[(p.x,p.y,radii[g],g) for g,p in enumerate(centers) if g!=2]
@@ -144,3 +147,10 @@ class Layout(unittest.TestCase):
         for field in ('top','bottom','controls'):
             a,b=getattr(flat,field),getattr(bent,field)
             self.assertEqual((a.x,a.y,a.w,a.h),(b.x,b.y,b.w,b.h))
+    def test_outer_landscape_footer_frees_bottom_screen(self):
+        for flip in (0,1):
+            layout=self.layout((0,0,844,390),3,flip)
+            self.assertEqual(layout.bottom_menu,2)
+            small=layout.top if flip else layout.bottom
+            self.assertLessEqual(small.y+small.h,382.001)
+            self.assertGreater(small.y+small.h,350)

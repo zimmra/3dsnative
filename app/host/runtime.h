@@ -60,6 +60,9 @@ void n3ds_input(unsigned source, uint32_t buttons, int32_t lx, int32_t ly, int32
 void n3ds_touch(bool pressed, float x, float y);
 void n3ds_resize(uint32_t top_width, uint32_t top_height, uint32_t bottom_width, uint32_t bottom_height);
 void n3ds_resolution(uint32_t scale);
+// 100 = normal speed, 200 = fast-forward. Applied on the emulation thread.
+void n3ds_set_speed(uint32_t percent);
+uint32_t n3ds_get_speed(void);
 n3ds_perf n3ds_get_perf(void);
 
 #ifdef __cplusplus

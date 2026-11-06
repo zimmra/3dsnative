@@ -11,6 +11,7 @@
 #include "common/logging/backend.h"
 #include "common/settings.h"
 #include "core/core.h"
+#include "core/perf_stats.h"
 #include "core/frontend/applets/default_applets.h"
 #include "core/frontend/emu_window.h"
 #include "core/hle/kernel/kernel.h"
@@ -80,6 +81,22 @@ static bool RunSmoke(NSString *documents) {
     filter.ParseFilterString(Settings::values.log_filter.GetValue());
     Common::Log::SetGlobalFilter(filter);
     bool audioPassed = RunAudioProbe(documents);
+    std::vector<double> times;
+    for (unsigned speed : {100u,200u,100u}) {
+        n3ds_set_speed(speed);
+        if (n3ds_get_speed() != speed) return false;
+        Settings::ResetTemporaryFrameLimit();
+        Settings::values.frame_limit.SetValue(speed);
+        Core::FrameLimiter limiter;
+        auto start = std::chrono::steady_clock::now();
+        for (unsigned frame=1; frame<=60; ++frame)
+            limiter.DoFrameLimiting(std::chrono::microseconds(frame*16667));
+        times.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+    }
+    bool speedPassed = times[0]>.9 && times[0]<1.2 && times[1]>.45 && times[1]<.65 && times[2]>.9 && times[2]<1.2;
+    NSDictionary *speedResult = @{@"passed":@(speedPassed),@"normal_seconds":@(times[0]),@"fast_seconds":@(times[1]),@"restored_seconds":@(times[2])};
+    [[NSJSONSerialization dataWithJSONObject:speedResult options:NSJSONWritingPrettyPrinted error:nil]
+        writeToFile:[documents stringByAppendingPathComponent:@"speed-probe.json"] atomically:YES];
     Settings::values.use_cpu_jit.SetValue(false);
     Settings::values.use_fastinterp.SetValue(true);
     Settings::values.use_shader_jit.SetValue(false);
@@ -125,11 +142,12 @@ static bool RunSmoke(NSString *documents) {
     bool exited = log && [exitPattern numberOfMatchesInString:log options:0 range:NSMakeRange(0, log.length)] == 1;
     bool normalStatus = status == Core::System::ResultStatus::Success ||
                         status == Core::System::ResultStatus::ShutdownRequested;
-    bool passed = loaded && marker && exited && normalStatus && audioPassed;
+    bool passed = loaded && marker && exited && normalStatus && audioPassed && speedPassed;
     NSDictionary *result = @{@"state": @"completed", @"passed": @(passed), @"loaded": @(loaded),
                               @"core_status": @(static_cast<unsigned>(status)),
                               @"debug_svc": @(marker), @"exit_svc": @(exited),
                               @"audio_probe": @(audioPassed),
+                              @"speed_probe": @(speedPassed),
                               @"cpu_jit": @NO, @"shader_jit": @NO};
     NSData *json = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
     [json writeToFile:[documents stringByAppendingPathComponent:@"smoke-result.json"] atomically:YES];

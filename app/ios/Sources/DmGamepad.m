@@ -172,7 +172,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
     _layout = layout;
     [self setNeedsLayout];
 }
-- (CGRect)safe { return CGRectIntersection(_layout.controls, UIEdgeInsetsInsetRect(self.bounds, dm_game_safe_insets(self.bounds, self.safeAreaInsets, _layout.topSafeOnly))); }
+- (CGRect)safe { return CGRectIntersection(_layout.controls, self.bounds); }
 - (CGRect)corner { if (_layout.separated) return self.safe; UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }
 - (CGFloat)u {
     if (_layout.controlUnit > 0) return _layout.controlUnit;
@@ -207,6 +207,15 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
 static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
 static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
+    if (_layout.bottomMenu==N3DS_MENU_OUTER_PORTRAIT) {
+        CGFloat threshold=MIN(self.stickHome.y-[self stickR:0],self.faceCenter.y-self.faceGap-self.faceR);
+        return side(s,b==B_ZR || b==B_R,30,threshold-40-(z?50:0));
+    }
+    if (_layout.bottomMenu==N3DS_MENU_OUTER_RIGHT) return side(s,b==B_ZR || b==B_R,z?82:30,CGRectGetMinY(s)+s.size.height*.35);
+    if (_layout.bottomMenu==N3DS_MENU_INNER_BOTTOM && self.bounds.size.height>=self.bounds.size.width) {
+        CGFloat threshold=MIN(self.stickHome.y-[self stickR:0],self.faceCenter.y-self.faceGap-self.faceR);
+        return side(s,b==B_ZR || b==B_R,z?82:30,(CGRectGetMinY(s)+24+threshold)/2);
+    }
     if (_layout.separated) return side(s, b == B_ZR || b == B_R, z ? 82 : 30, CGRectGetMinY(s) + 24);
     CGFloat edge = _layout.separated ? 22 : 0;
     return side(s, b == B_ZR || b == B_R, MAX((z ? K_ZL_X : K_L_X) * u, edge), CGRectGetMinY(s) + MAX((z ? K_ZL_Y : K_L_Y) * u, edge)); }
@@ -214,13 +223,14 @@ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; CGFloat edge = _layout.separated ? 22 : 0;
     return side(s, b == B_RS, MAX(K_CLICK_X * u, edge), CGRectGetMinY(s) + MAX(K_ZL_Y * u, edge)); }
 - (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, w = MAX(K_PILL_W * u, 54), h = MAX(K_PILL_H * u, 28);
-    CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * MAX(u, .85), _layout.bottomMenu ? CGRectGetMaxY(s)-32 : CGRectGetMinY(s) + MAX(K_PILL_Y * u, 22));
+    CGPoint c = self.menuCenter; c.x += (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * MAX(u, .85);
     return CGRectMake(c.x - w / 2, c.y - h / 2, w, h); }
-- (CGPoint)menuCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), _layout.bottomMenu ? CGRectGetMaxY(s)-32 : CGRectGetMinY(s) + MAX(K_PILL_Y * self.u, 22)); }
+- (CGPoint)menuCenter { CGRect s = self.safe; return CGPointMake(_layout.bottomMenu==N3DS_MENU_OUTER_RIGHT ? CGRectGetMaxX(s)-94 : CGRectGetMidX(s), _layout.bottomMenu ? CGRectGetMaxY(s)-26 : CGRectGetMinY(s) + MAX(K_PILL_Y * self.u, 22)); }
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 - (CGFloat)buttonDistance:(int)b point:(CGPoint)p {
     CGFloat u = self.u;
+    if (_key[b].path && CGPathContainsPoint(_key[b].path,NULL,p,false)) return 0;
     if (isDrop(b)) return dist(p, [self dropCenter:b]) / MAX([self dropR:b] * 1.35, _layout.separated ? 22 : 0);
     if (isClick(b)) return dist(p, [self clickCenter:b]) / MAX(K_CLICK_R * u * 1.35, _layout.separated ? 22 : 0);
     CGRect r = CGRectInset([self pillRect:b], -8 * u, -8 * u);
@@ -317,7 +327,6 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         // The visible touchscreen owns its entire rectangle. Generous invisible
         // pad grab regions must not steal stylus input at the display's edges.
         if (CGRectContainsPoint(_layout.game,p)) { game |= [self gameBegin:t]; continue; }
-        if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
         int hit = _tap ? -1 : [self btnAt:p];
         if (hit >= 0) { [_owner setObject:@(C_BTN | (uint64_t)hit << 8) forKey:t]; continue; }
         if (_tap) { game |= [self gameBegin:t]; continue; }
@@ -487,6 +496,10 @@ static void pads_start(void) {}
 }
 - (UIMenu *)gameMenu {
     __weak DmGamepad *weak = self;
+    UIAction *fast = [UIAction actionWithTitle:@"Fast-forward (2×)" image:[UIImage systemImageNamed:@"forward.fill"] identifier:nil handler:^(UIAction *action) {
+        n3ds_set_speed(n3ds_get_speed() == 200 ? 100 : 200);
+    }];
+    fast.state = n3ds_get_speed() == 200 ? UIMenuElementStateOn : UIMenuElementStateOff;
     NSMutableArray *scales = [NSMutableArray new];
     for (unsigned scale = 1; scale <= 3; scale++) {
         UIAction *action = [UIAction actionWithTitle:[NSString stringWithFormat:@"%u× resolution", scale] image:nil identifier:nil handler:^(UIAction *a) {
@@ -510,7 +523,7 @@ static void pads_start(void) {}
         [NSNotificationCenter.defaultCenter postNotificationName:@"N3DSSettingsChanged" object:nil];
     }];
     fps.state = [NSUserDefaults.standardUserDefaults boolForKey:@"ShowFPS"] ? UIMenuElementStateOn : UIMenuElementStateOff;
-    NSMutableArray *items = [NSMutableArray arrayWithArray:@[[UIMenu menuWithTitle:@"Resolution" children:scales], controls, automatic, fps]];
+    NSMutableArray *items = [NSMutableArray arrayWithArray:@[fast, [UIMenu menuWithTitle:@"Resolution" children:scales], controls, automatic, fps]];
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"LandscapeOptionsAvailable"]) {
         NSMutableArray *layouts = [NSMutableArray new];
         NSArray *names = @[@"50/50 split", @"Top screen only", @"Bottom screen only", @"Large/small vertical"];

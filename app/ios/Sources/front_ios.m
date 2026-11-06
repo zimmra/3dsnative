@@ -120,6 +120,7 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
 - (void)loadView { self.view = [N3DSRootView new]; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+- (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }
 - (void)settingsChanged:(NSNotification *)notification { [self.view setNeedsLayout]; }
 #if __has_include(<UIKit/UIHingeInteraction.h>)
 - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
@@ -204,6 +205,16 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
             NSString *sequence = command[@"sequence"];
             if (![sequence isKindOfClass:NSString.class] || [sequence isEqual:previous]) return;
             previous = sequence;
+            if (command[@"display"]) {
+                [NSUserDefaults.standardUserDefaults setInteger:[command[@"display"] integerValue] forKey:@"LandscapeDisplay"];
+                [controller.view setNeedsLayout];
+            }
+            if (command[@"orientation"]) {
+                BOOL landscape=[command[@"orientation"] isEqual:@"landscape"];
+                UIWindowSceneGeometryPreferencesIOS *preferences=[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:landscape?UIInterfaceOrientationMaskLandscapeLeft:UIInterfaceOrientationMaskPortrait];
+                [controller.view.window.windowScene requestGeometryUpdateWithPreferences:preferences errorHandler:^(NSError *error) { NSLog(@"Simulator rotation: %@",error); }];
+            }
+            if (command[@"speed"]) n3ds_set_speed([command[@"speed"] unsignedIntValue]);
             n3ds_input(N3DS_INPUT_AUTOMATION, [command[@"buttons"] unsignedIntValue], 0, 0, 0, 0);
             if (command[@"touch"]) {
                 NSArray *touch = command[@"touch"];
@@ -223,7 +234,10 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     CGRect bounds = self.view.bounds;
-    CGRect safe = UIEdgeInsetsInsetRect(bounds, self.view.safeAreaInsets);
+    // A game has no navigation/status chrome. Camera-side safe insets must not
+    // shrink the entire picture and input viewport into an arbitrary column.
+    CGRect safe = bounds;
+    safe.size.height = MAX(0,safe.size.height-4);
     N3DSRect division = {0};
 #if __has_include(<UIKit/UIHingeInteraction.h>)
     if (@available(iOS 27.1, *)) {
@@ -252,7 +266,7 @@ static void runtimeStatus(void *context, enum n3ds_stage stage, uint64_t done, u
     if (topOmitted) top = CGRectMake(-402,-242,400,240);
     if (bottomOmitted) bottom = CGRectMake(-322,-242,320,240);
     self.flip.hidden = !geometry.landscape_options || display != N3DS_VERTICAL;
-    self.flip.frame = CGRectMake(CGRectGetMidX(controls)+104, geometry.bottom_menu ? CGRectGetMaxY(controls)-54 : CGRectGetMinY(controls)+54,44,44);
+    self.flip.frame = CGRectMake(geometry.bottom_menu==N3DS_MENU_OUTER_RIGHT ? CGRectGetMinX(controls)+8 : CGRectGetMidX(controls)+104, geometry.bottom_menu ? CGRectGetMaxY(controls)-48 : CGRectGetMinY(controls)+54,44,44);
     NSString *line = [NSString stringWithFormat:@"bounds %@ safe %@ fold %@ partial=%d top %@ bottom %@ controls %@", NSStringFromCGRect(bounds), NSStringFromCGRect(safe), NSStringFromCGRect(CGRectMake(division.x,division.y,division.w,division.h)), self.partiallyOpen, NSStringFromCGRect(top), NSStringFromCGRect(bottom), NSStringFromCGRect(controls)];
     if (![line isEqual:self.layoutLog]) { self.layoutLog = line; NSLog(@"3dsnative Duo layout: %@", line); }
     BOOL changed = !CGRectEqualToRect(self.top.frame, top) || !CGRectEqualToRect(self.bottom.frame, bottom);

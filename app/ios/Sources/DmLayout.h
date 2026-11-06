@@ -1,7 +1,7 @@
 #pragma once
 #import <UIKit/UIKit.h>
 #include <TargetConditionals.h>
-typedef struct { CGRect game, controls; BOOL separated, topSafeOnly; CGFloat controlUnit; BOOL bottomMenu; } DmLayout;
+typedef struct { CGRect game, controls; BOOL separated, topSafeOnly; CGFloat controlUnit; NSInteger bottomMenu; } DmLayout;
 static inline UIEdgeInsets dm_game_safe_insets(CGRect b, UIEdgeInsets i, BOOL duo) { return i; }
 static inline CGPoint dm_game_touch_point(CGRect game, CGPoint p) {
     return CGPointMake(fmin(fmax((p.x-game.origin.x)/game.size.width, 0), .999),

@@ -302,3 +302,25 @@ expanded 800 by 1000 portrait/book fixtures require at least 480 by 360 points f
 Visible controls stay outside the display; its complete rectangle takes stylus priority over
 invisible pad grab margins. Thirty-three synthetic tests include these readability thresholds
 and visible separation between the compact control groups.
+
+## Fast-forward and full-window controls (build 6)
+
+The gear menu now toggles a 2x frame-speed target on the emulation thread. Guest CPU clock remains
+100%; disabling vsync during acceleration lets the Vulkan swapchains use their non-FIFO present
+mode. Normal speed restores 100% and vsync. The adaptive integer-PCM stretcher also processes
+fast-forward audio instead of accumulating normal-speed FIFO backlog. A real core limiter probe
+measured 1.004 seconds at normal speed, 0.502 at 2x and 1.000 after restoration for the same guest
+second. Original ARM11 debug/exit and audio probes also passed.
+
+The fullscreen game canvas no longer inherits camera-side safe-area columns, and the gamepad no
+longer clips that canvas a second time. UIKit defers system edge gestures for gameplay. Visible
+shoulder paths participate directly in hit testing, including their pointed extensions, and an
+arbitrary controls rectangle no longer rejects visible button touches outside that rectangle.
+Physical device confirmation remains necessary for edge-gesture delivery near camera cutouts.
+
+Inner portrait retains its display composition and moves shoulders halfway toward the upper edge
+of the main controls. Compact portrait uses the full width for the top display, shifts the lower
+screen beneath it and stacks ZL/ZR above L/R. Vertical landscape anchors the smaller display lower;
+expanded windows give both displays more space. Compact landscape places its menu cluster at bottom
+right and flip control at bottom left, with the D-pad and C-stick outside the touch display.
+A four-point canvas bottom margin replaces the previous global safe-area exclusion.
