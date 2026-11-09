@@ -1,17 +1,17 @@
 # Configuration of the Python lint and type checks (.github/workflows/lint-python.yml, dm/tools/lint_python.py) and of the tool tests' coverage (the coverage job of
 # .github/workflows/tests.yml); the repository is not a Python package.
-# Scope: scripts/ and the tools under dm/. extraPaths / extra-paths are the folders the tools put on sys.path to import each other.
+# Scope: scripts/ and the tools under dm/ and app/, plus the 3DS packer tests. extraPaths / extra-paths are the folders the tools put on sys.path to import each other.
 
 [tool.pyright]
-include = ["scripts", "dm/tools", "dm/gfx/tools", "dm/games/game.py", "dm/games/profile_guess.py", "dm/games/settings.py", "dm/ios/tools", "dm/mac"]
-extraPaths = ["dm/tools", "dm/gfx/tools", "dm/games", "dm/ios/tools", "dm/mac", "dm/tools/fuzz"]
+include = ["scripts", "dm/tools", "dm/gfx/tools", "dm/games/game.py", "dm/games/profile_guess.py", "dm/games/settings.py", "dm/ios/tools", "dm/mac", "app/tools", "tests"]
+extraPaths = ["dm/tools", "dm/gfx/tools", "dm/games", "dm/ios/tools", "dm/mac", "dm/tools/fuzz", "app/tools"]
 typeCheckingMode = "basic"
 pythonVersion = "3.14"
 pythonPlatform = "Darwin"
 
 [tool.ruff]
 target-version = "py310"
-include = ["scripts/**/*.py", "dm/tools/**/*.py", "dm/gfx/tools/**/*.py", "dm/games/*.py", "dm/ios/tools/**/*.py", "dm/mac/**/*.py"]
+include = ["scripts/**/*.py", "dm/tools/**/*.py", "dm/gfx/tools/**/*.py", "dm/games/*.py", "dm/ios/tools/**/*.py", "dm/mac/**/*.py", "app/tools/**/*.py", "tests/**/*.py"]
 
 # Rules that find bugs (pyflakes, syntax, bugbear, pylint's errors and warnings, a few of ruff's own), not style: the code's dense layout (several statements on a
 # line, star imports of the rewriter's tables, short names) is the house style, so those rules are off, and `ruff format` is not used.
