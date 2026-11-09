@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 sys.dont_write_bytecode = True
-from cytrus_patches import audio_fixes, simulator_texel_buffers
+from cytrus_patches import audio_fixes, fast_forward_presentation, simulator_texel_buffers
 
 
 PINS = {
@@ -183,6 +183,7 @@ void cytrus::resize_screens(double top_h, double top_w, double bottom_h, double 
     if dest.read_text() != window:
         dest.write_text(window)
     audio_fixes(source, target)
+    fast_forward_presentation(source, target)
     simulator_texel_buffers(source, target)
     return target
 

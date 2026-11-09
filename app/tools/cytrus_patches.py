@@ -2,6 +2,30 @@
 from pathlib import Path
 
 
+def fast_forward_presentation(source: Path, target: Path) -> None:
+    relative = "video_core/renderer_vulkan/renderer_vulkan.cpp"
+    original = (source / relative).read_text()
+    marker = "void RendererVulkan::SwapBuffers() {\n    system.perf_stats->StartSwap();"
+    if original.count(marker) != 1:
+        raise RuntimeError("Review upstream Vulkan presentation before applying fast-forward")
+    patched = original.replace(marker, marker + """
+    // At 2x, compose the host displays once per two guest VBlanks. FIFO
+    // presentation can otherwise block the guest on each display refresh.
+    // Continue submitting guest GPU work and running all guest frame timing.
+    if (Settings::GetFrameLimit() == 200 && (current_frame & 1) &&
+        !settings.screenshot_requested.load()) {
+        scheduler.Flush();
+        system.perf_stats->EndSwap();
+        rasterizer.TickFrame();
+        EndFrame();
+        return;
+    }
+""")
+    output = target / relative
+    if output.read_text() != patched:
+        output.write_text(patched)
+
+
 def audio_fixes(source: Path, target: Path) -> None:
     edits = {
         "audio_core/time_stretch.cpp": [

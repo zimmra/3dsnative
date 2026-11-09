@@ -324,3 +324,13 @@ screen beneath it and stacks ZL/ZR above L/R. Vertical landscape anchors the sma
 expanded windows give both displays more space. Compact landscape places its menu cluster at bottom
 right and flip control at bottom left, with the D-pad and C-stick outside the touch display.
 A four-point canvas bottom margin replaces the previous global safe-area exclusion.
+
+## Fast-forward presentation cadence (build 7)
+
+Device feedback reported no visible acceleration with build 6. The limiter probe measured sleep
+pacing in isolation. Vulkan can still fall back to FIFO, and its frame pool waits for presentation
+resources. Build 7 composes both host displays every second guest VBlank at the 200% target, while
+submitting guest GPU commands, ticking the rasterizer and running the limiter every VBlank. This
+also avoids changing swapchain modes at each toggle. The first performance interval after toggling
+is logged to support phone validation. Actual acceleration depends on device headroom and remains
+unverified on hardware.

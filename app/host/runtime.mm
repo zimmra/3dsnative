@@ -154,10 +154,8 @@ int n3ds_run(const n3ds_boot_config *config_ptr) {
                 if (pending.speed_dirty) {
                     Settings::ResetTemporaryFrameLimit();
                     Settings::values.frame_limit.SetValue(pending.speed);
-                    // Vulkan recreates the swapchain when vsync changes. Avoid
-                    // its display-refresh cap while running the guest faster.
-                    Settings::values.use_vsync.SetValue(pending.speed == 100);
                     LOG_INFO(Core, "Playback speed target: {}%", pending.speed);
+                    samples = 9; // Record the next measured interval after each toggle.
                 }
                 if (pending.resize_dirty) {
                     cytrus::resize_screens(pending.top_h, pending.top_w, pending.bottom_h, pending.bottom_w);

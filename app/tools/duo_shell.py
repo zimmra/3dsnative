@@ -127,7 +127,7 @@ def build(inputs: Path, output: Path, work: Path) -> None:
         link += ['-framework',name]
     subprocess.run(link,check=True)
     info = {'CFBundleExecutable':'3dsnative','CFBundleIdentifier':'org.threedsnative.shell', 'CFBundleName':'3dsnative',
-            'CFBundlePackageType':'APPL','CFBundleVersion':'6','CFBundleShortVersionString':'0.2','MinimumOSVersion':'26.0',
+            'CFBundlePackageType':'APPL','CFBundleVersion':'7','CFBundleShortVersionString':'0.2','MinimumOSVersion':'26.0',
             'DTSDKName':'iphoneos'+sdk_version,'DTPlatformName':'iphoneos','UIDeviceFamily':[1],'UILaunchScreen':{},
             'UIFileSharingEnabled':True,'LSSupportsOpeningDocumentsInPlace':True,
             'UIApplicationSceneManifest':{'UIApplicationSupportsMultipleScenes':False,'UISceneConfigurations':{'UIWindowSceneSessionRoleApplication':[
